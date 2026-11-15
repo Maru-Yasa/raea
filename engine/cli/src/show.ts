@@ -22,8 +22,10 @@ raea show [--title T] --question Q1 [--preview FILE] --choice A [--preview FILE]
   It lands in the person's feed with a notice and the window stays where they are; --open brings the window up on it
   (only when they're waiting on it).
   FILE: stills (several make a storyboard), a video, a sound, a NAME.script.ts or .md, or a .tsx (an interactive
-  artifact; one of the project's compositions opens in its editor). P: the project's id, title or Workspace/project;
-  else the one this folder is in. Who's showing it: --as NAME [--role ROLE] [--inbox NAME], else your harness's.
+  artifact; one of the project's compositions opens in its editor). P: Workspace/id (ids as raea workspace --json
+  lists them), a folder in the project, or a Copy reference from the app; a title only when it's the only one and
+  this folder isn't in another project. Else the one this folder is in. Who's showing it: --as NAME [--role ROLE]
+  [--inbox NAME], else your harness's.
 raea show --on ITEM --working ID... [--ask TEXT]... [--status S [--states S1,S2...]] | --done ID... [--note LINE] [--sub NAME]
 raea show --on ITEM --working ID --sign N --clip FILE --render HASH
 raea show FILE... --replaces ITEM --done ID...
