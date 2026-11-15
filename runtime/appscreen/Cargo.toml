@@ -10,7 +10,7 @@ description = "App screens (<Screen app>): a module on @raea/ui's react-dom in a
 bevy = { version = "=0.20.0", default-features = false, features = ["std", "default_app", "bevy_render", "bevy_window"] }
 blitz-traits = "=0.3.0-beta.4"
 keyboard-types = "0.8"
-wgpu = "=30.0.1"
+serde_json = "1"
 raea-page = { path = "../../engine/page" }
 raea-runtime-dom = { path = "../dom" }
 raea-runtime-js = { path = "../js" }

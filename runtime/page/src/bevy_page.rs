@@ -162,7 +162,7 @@ impl BevyPage {
 
     /// What reached the app screens this frame, for the input log (runtime/page/src/screen.rs `logged`).
     pub fn app_input(&self) -> Option<Value> {
-        crate::screen::logged(&self.apps)
+        self.apps.r.logged()
     }
 
     /// The page drawn and read back: premultiplied RGBA rows, `w` x `h`.
@@ -288,9 +288,8 @@ impl BevyPage {
 
     /// Each <Screen>'s picture as last drawn, by name: its texture on the shared device (an app screen's too).
     pub fn screen_textures(&self) -> Vec<(String, wgpu::Texture)> {
-        let mut all: Vec<_> = self.page.sub_textures().into_iter().map(|(k, t, _, _)| (k, (*t).clone())).collect();
-        all.extend(crate::screen::textures(&self.apps));
-        all
+        let apps = crate::screen::textures(&self.apps);
+        self.page.sub_textures().into_iter().map(|(k, t, _, _)| (k, t)).chain(apps).map(|(k, t)| (k, (*t).clone())).collect()
     }
 
     /// The page's picture as last drawn, on the shared device (`Rgba8UnormSrgb`, premultiplied).

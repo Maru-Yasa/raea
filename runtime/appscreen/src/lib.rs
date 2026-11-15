@@ -39,6 +39,46 @@ pub struct Input {
     pub wheel: Vec<f64>,
 }
 
+/// What reached the app screens in a frame, from live play's routing (runtime/page screen.rs route) or a render's input
+/// log of it: the screen with the focus and the keys held for it, the pointer on a screen (its name, x and y on its
+/// picture, whether it's down) and the wheel's turns there (`Wheel:Y DY`).
+#[derive(Default, Clone, Debug, PartialEq)]
+pub struct Routed {
+    pub focus: Option<String>,
+    pub keys: Vec<String>,
+    pub pointer: Option<(String, f64, f64, bool)>,
+    pub wheel: Vec<String>,
+}
+
+impl Routed {
+    /// App screen `name`'s input: the pointer when it's on it (with the wheel turned there), the keys while it has the
+    /// focus (a DOM key's name; the live wire's marked keys, "Mouse:Right" or "Pad0:South", aren't keys to it).
+    pub fn input_of(&self, name: &str) -> Input {
+        let on = self.pointer.as_ref().filter(|p| p.0 == name);
+        let focused = self.focus.as_deref() == Some(name);
+        Input {
+            pointer: on.map(|p| (p.1, p.2, p.3)),
+            keys: self.keys.iter().filter(|k| focused && (k.chars().count() == 1 || !k.contains(':'))).cloned().collect(),
+            wheel: self.wheel.iter().filter(|_| on.is_some()).filter_map(|w| w.strip_prefix("Wheel:Y ")?.trim().parse().ok()).collect(),
+        }
+    }
+
+    /// As the input log keeps it (`apps`); None when nothing reached an app screen.
+    pub fn logged(&self) -> Option<serde_json::Value> {
+        let any = self.focus.is_some() || self.pointer.is_some() || !self.wheel.is_empty();
+        any.then(|| serde_json::json!({ "focus": self.focus, "keys": self.keys, "pointer": self.pointer.as_ref().map(|p| serde_json::json!([p.0, p.1, p.2, p.3])), "wheel": self.wheel }))
+    }
+
+    /// From a log's entry (`logged`'s); nothing reached them when there's none.
+    pub fn from_log(v: Option<&serde_json::Value>) -> Routed {
+        let Some(v) = v else { return Routed::default() };
+        let texts = |k: &str| v[k].as_array().into_iter().flatten().filter_map(|s| s.as_str().map(String::from)).collect();
+        let p = v["pointer"].as_array();
+        let pointer = p.and_then(|p| Some((p.first()?.as_str()?.to_string(), p.get(1)?.as_f64()?, p.get(2)?.as_f64()?, p.get(3)?.as_bool()?)));
+        Routed { focus: v["focus"].as_str().map(String::from), keys: texts("keys"), pointer, wheel: texts("wheel") }
+    }
+}
+
 /// Set for the one update a step runs the page's JS in (the draw's later updates, while faces and images load, only
 /// paint).
 #[derive(Resource, Default)]
@@ -120,8 +160,8 @@ impl AppScreen {
 
     /// Its picture as last drawn: its texture on the page's device (sRGB-encoded premultiplied RGBA, as a nested
     /// <Screen>'s).
-    pub fn texture(&self) -> Option<wgpu::Texture> {
-        self.page.texture().map(|t| (*t).clone())
+    pub fn texture(&self) -> Option<bevy::render::render_resource::Texture> {
+        self.page.texture()
     }
 
     /// Its picture as last drawn, read back: RGBA rows at its size.
@@ -244,5 +284,16 @@ mod tests {
         assert!(matches!(enter.key, Key::Named(_)) && enter.text.is_none());
         assert_eq!(key_event("Space", Modifiers::empty(), true).text.as_deref(), Some(" "));
         assert_eq!(mods_of(&["Shift".into(), "a".into()]), Modifiers::SHIFT);
+    }
+
+    #[test]
+    fn the_logged_input_comes_back_the_same() {
+        let r = Routed { focus: Some("kit".into()), keys: vec!["a".into(), "Pad0:South".into()], pointer: Some(("kit".into(), 12.5, 40.0, true)), wheel: vec!["Wheel:Y 120".into()] };
+        let v = r.logged().unwrap();
+        let back = Routed::from_log(Some(&v));
+        assert_eq!(back, r);
+        assert_eq!(back.input_of("kit"), Input { pointer: Some((12.5, 40.0, true)), keys: vec!["a".into()], wheel: vec![120.0] });
+        assert_eq!(back.input_of("other"), Input::default());
+        assert_eq!(Routed::from_log(None).logged(), None);
     }
 }

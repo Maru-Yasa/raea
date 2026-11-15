@@ -15003,7 +15003,7 @@ dependencies = [
  "raea-runtime-jsengine",
  "raea-sys-fonts",
  "raea-sys-page",
- "wgpu",
+ "serde_json",
 ]
 
 [[package]]
