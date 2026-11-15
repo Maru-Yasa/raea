@@ -7,6 +7,7 @@
 //!   notify.permission -> bool     macOS's prompt, or its answer if already given
 //!   dock.badge {text}             the Dock icon's badge, on Windows the taskbar button's overlay ("" clears it)
 //!   app.urls -> string[]          raea:// links opened since the last ask, the app brought to the front for each
+//!   app.drops -> {over, dropped}  files dragged from the Finder: whether some are over the window, the paths dropped since the last ask
 //!   native.log -> {...}           what was done, for tests
 //!
 //! Live only on screen (--window) and without RAEA_NO_OPEN=1: otherwise every call is recorded and answered as if done,
@@ -39,6 +40,8 @@ struct Log {
 static LOG: Mutex<Option<Log>> = Mutex::new(None);
 /// raea:// links that arrived and the page hasn't read yet (filled by the Apple event handler, on the main thread).
 static URLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Files dragged onto the window: whether some are over it now, and the paths dropped the page hasn't read yet (drops).
+static DROPS: Mutex<(bool, Vec<String>)> = Mutex::new((false, Vec::new()));
 
 fn log<T>(f: impl FnOnce(&mut Log) -> T) -> T {
     f(LOG.lock().unwrap().get_or_insert_with(Log::default))
@@ -58,12 +61,12 @@ pub struct NativePlugin {
 impl Plugin for NativePlugin {
     fn build(&self, app: &mut App) {
         let live = self.live && std::env::var("RAEA_NO_OPEN").as_deref() != Ok("1");
-        app.insert_resource(Live(live)).init_resource::<Queue>().init_resource::<HostCalls>().add_systems(Startup, (calls, start)).add_systems(Update, drain);
+        app.insert_resource(Live(live)).init_resource::<Queue>().init_resource::<HostCalls>().add_systems(Startup, (calls, start)).add_systems(Update, (drops, drain).chain());
     }
 }
 
 fn calls(mut calls: ResMut<HostCalls>) {
-    for name in ["clipboard.write", "clipboard.read", "app.open", "notify", "notify.permission", "dock.badge", "app.urls", "native.log"] {
+    for name in ["clipboard.write", "clipboard.read", "app.open", "notify", "notify.permission", "dock.badge", "app.urls", "app.drops", "native.log"] {
         calls.on(name, move |w, args, answer| w.resource::<Queue>().0.lock().unwrap().push(Job(name.to_string(), args, answer)));
     }
 }
@@ -72,6 +75,23 @@ fn calls(mut calls: ResMut<HostCalls>) {
 fn start(live: Res<Live>, _main: NonSendMarker) {
     if live.0 {
         mac::listen_for_urls();
+    }
+}
+
+/// Bevy's drag-and-drop messages (winit's), kept for app.drops: live or not, a file dropped on the window is the
+/// person's own act, never something a call does to them.
+fn drops(mut evs: MessageReader<bevy::window::FileDragAndDrop>) {
+    use bevy::window::FileDragAndDrop as D;
+    for e in evs.read() {
+        let mut d = DROPS.lock().unwrap();
+        match e {
+            D::HoveredFile { .. } => d.0 = true,
+            D::HoveredFileCanceled { .. } => d.0 = false,
+            D::DroppedFile { path_buf, .. } => {
+                d.0 = false;
+                d.1.push(path_buf.to_string_lossy().into_owned());
+            }
+        }
     }
 }
 
@@ -149,6 +169,11 @@ fn run(live: bool, name: &str, a: &Value, answer: Answer) {
             let urls = std::mem::take(&mut *URLS.lock().unwrap());
             log(|l| l.urls.extend(urls.iter().cloned()));
             answer.ok(json!(urls))
+        }
+        "app.drops" => {
+            let mut d = DROPS.lock().unwrap();
+            let dropped = std::mem::take(&mut d.1);
+            answer.ok(json!({"over": d.0, "dropped": dropped}))
         }
         "native.log" => answer.ok(log(|l| json!({"live": live, "clipboard": l.clipboard, "opened": l.opened, "notified": l.notified, "badge": l.badge, "urls": l.urls}))),
         _ => answer.err(format!("no native call {name}")),
@@ -377,5 +402,32 @@ mod tests {
     fn notifications_outside_the_app_say_why() {
         let e = mac::notify("t", "b").unwrap_err();
         assert!(e.contains("raea.app"), "{e}");
+    }
+}
+
+#[cfg(test)]
+mod drop_tests {
+    use super::{DROPS, drops};
+    use bevy::prelude::*;
+    use bevy::window::FileDragAndDrop as D;
+
+    /// What app.drops answers: files over the window while they're dragged, then the paths once, as they're dropped.
+    #[test]
+    fn a_finder_drag_says_over_then_hands_its_paths_once() {
+        let mut app = App::new();
+        app.add_message::<D>().add_systems(Update, drops);
+        let window = Entity::PLACEHOLDER;
+        app.world_mut().write_message(D::HoveredFile { window, path_buf: "/tmp/a.mov".into() });
+        app.update();
+        assert!(DROPS.lock().unwrap().0, "over while dragged");
+        app.world_mut().write_message(D::HoveredFileCanceled { window });
+        app.update();
+        assert!(!DROPS.lock().unwrap().0, "not over once it leaves");
+        app.world_mut().write_message(D::DroppedFile { window, path_buf: "/tmp/a.mov".into() });
+        app.world_mut().write_message(D::DroppedFile { window, path_buf: "/tmp/b c.png".into() });
+        app.update();
+        let mut d = DROPS.lock().unwrap();
+        assert!(!d.0);
+        assert_eq!(std::mem::take(&mut d.1), vec!["/tmp/a.mov".to_string(), "/tmp/b c.png".to_string()]);
     }
 }
