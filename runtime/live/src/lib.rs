@@ -58,6 +58,9 @@ pub struct Live {
     frame: i64,
     /// the gamepads' marked keys the last frame was given beside its input ("Pad0:South"), for its input log
     pads: Vec<String>,
+    /// the keys an app screen took from the last frame (the page didn't get them), left out of its input log, which
+    /// keeps them under `apps` (`app_input`)
+    taken: Vec<String>,
     /// the pointer on the page's elements, as the last frame left it (pointer.rs)
     pointer: pointer::PagePointer,
     /// generated sounds' files, by what they were made from (looked up once)
@@ -202,6 +205,9 @@ impl Live {
         self.lag = (lag, std::time::Instant::now());
         self.frame = f;
         self.pads.clear();
+        self.taken.clear();
+        // the app screens step to this frame at the page's next sync (screen.rs step_all)
+        self.page.set_app_frame(f, self.fps);
         let t0 = std::time::Instant::now();
         if self.baked.is_some() {
             // a baked timeline: its recorded commits, no JS; the clips it cuts to soon opened ahead; the page styled at
@@ -224,6 +230,9 @@ impl Live {
                 Some(e) => Some(raea_runtime_page::screen::route(&mut self.page, e, keys, pointer, (self.w, self.h))),
                 None => None,
             };
+            if let Some(r) = &routed {
+                self.taken = keys.iter().filter(|k| !r.contains(k)).cloned().collect();
+            }
             let keys = routed.as_deref().unwrap_or(keys);
             // the pointer on the page's elements: their on* handlers, before the frame's step (pointer.rs)
             if let Some(p) = pointer {
@@ -389,7 +398,13 @@ impl Live {
     /// The keys the last frame stepped was given: `keys` and the gamepads marked beside them, as its input log records
     /// them, so a render of the log gives the game the same pads (bench/render-play's live-gamepad).
     pub fn played_keys(&self, keys: &[String]) -> Vec<String> {
-        keys.iter().chain(&self.pads).cloned().collect()
+        keys.iter().chain(&self.pads).filter(|k| !self.taken.contains(k)).cloned().collect()
+    }
+
+    /// What reached the app screens in the last frame stepped, as its input log keeps it (`apps`): a render of the
+    /// log gives them the same (runtime/page/src/screen.rs).
+    pub fn app_input(&self) -> Option<serde_json::Value> {
+        self.page.app_input()
     }
 }
 
