@@ -160,11 +160,6 @@ impl BevyPage {
         self.apps.frame = Some((f, fps));
     }
 
-    /// What reached the app screens this frame, for the input log (runtime/page/src/screen.rs `logged`).
-    pub fn app_input(&self) -> Option<Value> {
-        self.apps.r.logged()
-    }
-
     /// The page drawn and read back: premultiplied RGBA rows, `w` x `h`.
     pub fn frame(&mut self) -> R<Vec<u8>> {
         self.page.frame()

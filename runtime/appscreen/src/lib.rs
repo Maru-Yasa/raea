@@ -265,7 +265,7 @@ pub fn build(file: &Path) -> R<(String, String)> {
     if !file.is_file() {
         return Err(format!("{}: no such module", file.display()));
     }
-    let (js, imported) = raea_runtime_bundle::inproc::app::bundle_screen(file, &raea_io_home::home())?;
+    let (js, imported) = raea_runtime_bundle::inproc::app::bundle(file, &raea_io_home::home(), raea_runtime_bundle::inproc::app::SCREEN)?;
     let tw = raea_runtime_bundle::styles::tailwind(file.parent().unwrap_or(Path::new(".")))?;
     Ok((js, format!("{imported}\n{tw}")))
 }

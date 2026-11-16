@@ -86,6 +86,11 @@ pub fn route(page: &mut crate::BevyPage, engine: &mut raea_render::engine::Engin
     }
 }
 
+/// What reached the page's app screens this frame, for the input log (Routed::logged): None when nothing did.
+pub fn logged(page: &crate::BevyPage) -> Option<Value> {
+    page.apps.r.logged()
+}
+
 /// The app screens that went let go of: their focus, pointer and failures forgotten, so a screen back again opens
 /// fresh. `screens`: each app screen now, its name, size and module.
 pub(crate) fn retire(a: &mut Apps, screens: &[(String, u32, u32, String)]) {

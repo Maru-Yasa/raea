@@ -383,7 +383,7 @@ impl Live {
     /// What reached the app screens in the last frame stepped, as its input log keeps it (`apps`): a render of the
     /// log gives them the same (runtime/page/src/screen.rs).
     pub fn app_input(&self) -> Option<serde_json::Value> {
-        self.page.app_input()
+        raea_runtime_page::screen::logged(&self.page)
     }
 }
 

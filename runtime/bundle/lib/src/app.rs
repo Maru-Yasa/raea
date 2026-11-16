@@ -36,18 +36,17 @@ fn ui(home: &Path) -> serde_json::Value {
     m.into()
 }
 
-/// `app` bundled against `home`: its script and the CSS its modules import
-pub fn bundle(app: &Path, home: &Path) -> Result<(String, String), String> {
-    bundle_with(app, home, "null")
-}
+/// What an app's default export is given, for `bundle`: nothing, as an app in a window of its own is (it reads the
+/// window)
+pub const WINDOW: &str = "null";
 
-/// An app screen's module (`<Screen app="kit.tsx">`, docs/blitz-bevy.feature H12) bundled as an app is: its default
-/// export given `{width, height}`, the screen's size (its document's, so one bundle serves a screen of any size)
-pub fn bundle_screen(app: &Path, home: &Path) -> Result<(String, String), String> {
-    bundle_with(app, home, "{ width: innerWidth, height: innerHeight }")
-}
+/// What an app screen's module (`<Screen app="kit.tsx">`, docs/blitz-bevy.feature H12) is given: `{width, height}`, the
+/// screen's size (its document's, so one bundle serves a screen of any size)
+pub const SCREEN: &str = "{ width: innerWidth, height: innerHeight }";
 
-fn bundle_with(app: &Path, home: &Path, props: &str) -> Result<(String, String), String> {
+/// `app` bundled against `home`, its default export mounted with `props` (WINDOW or SCREEN): its script and the CSS its
+/// modules import
+pub fn bundle(app: &Path, home: &Path, props: &str) -> Result<(String, String), String> {
     // canonical, and on Windows without canonicalize()'s verbatim \\?\ prefix: Rolldown can't resolve an entry that
     // imports a path written with it (T1f: the Windows release check, 11-07)
     let app = raea_io_home::plain(app.canonicalize().map_err(|e| format!("{}: {e}", app.display()))?);
