@@ -59,6 +59,18 @@ impl Codec {
     pub fn here(self) -> bool {
         cfg!(target_vendor = "apple") || matches!(self, Codec::Rle | Codec::Png)
     }
+
+    /// It, or what to use instead where this build can't write it.
+    pub fn usable(self) -> R<Codec> {
+        if self.here() { Ok(self) } else { Err(format!("{} is written through VideoToolbox, on a Mac: --alpha-codec rle (QuickTime Animation) or png here", self.name())) }
+    }
+
+    /// The codec `--alpha-codec` names (this machine's own when it names none), refused when it can't be written here:
+    /// what an export asks for before it renders anything, so a Windows PC told prores hears so before the reference
+    /// render, not after it (#196).
+    pub fn chosen(flag: Option<&str>) -> R<Codec> {
+        flag.map_or(Ok(Codec::default_here()), Codec::parse)?.usable()
+    }
 }
 
 /// A transparent movie being written: frames in, `finish` makes the file.
@@ -79,9 +91,7 @@ enum Inner {
 impl Writer {
     /// A movie of `codec` at `out`; `quality` (0..1) is HEVC's, which the others don't take.
     pub fn create(out: &Path, codec: Codec, width: u32, height: u32, fps: f64, quality: f32) -> R<Writer> {
-        if !codec.here() {
-            return Err(format!("{} is written through VideoToolbox, on a Mac: use --alpha-codec rle or png here", codec.name()));
-        }
+        codec.usable()?;
         if width == 0 || height == 0 || width > 0xFFFF || height > 0xFFFF {
             return Err(format!("a {width}x{height} movie can't be written"));
         }

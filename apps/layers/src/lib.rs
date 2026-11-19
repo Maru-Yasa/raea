@@ -145,7 +145,7 @@ pub fn export(args: &[String]) -> R<(Layers, String)> {
     let tsx = args.first().filter(|a| !a.starts_with('-')).ok_or(USAGE)?;
     let tsx = dunce::canonicalize(PathBuf::from(tsx)).map_err(|e| format!("{tsx}: {e}"))?;
     let edit_dir = tsx.parent().unwrap().to_path_buf();
-    let codec = flag(args, "--alpha-codec").map_or(Ok(raea_io_alpha::Codec::default_here()), |c| raea_io_alpha::Codec::parse(&c))?;
+    let codec = raea_io_alpha::Codec::chosen(flag(args, "--alpha-codec").as_deref())?;
     let name = named(args, &tsx);
     let dir = flag(args, "-o").map_or_else(|| edit_dir.join("out/layers").join(&name), PathBuf::from);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;

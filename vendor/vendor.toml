@@ -169,7 +169,7 @@ exit = "a Rune release whose rune-taffy handles taffy's flexbox_balance"
 path = "vendor/bevy_hanabi"
 upstream = "git:github.com/djeedai/bevy_hanabi@77630ff1eed8b104f34e91d23e9440428dc5ab01:."
 kind = "patch"
-reason = "frame-pure particles (raea #52): a new particle seeded by its spawn index, not the dead slot it recycles (vfx_init.wesl), and blended effects sorted by view depth from the main camera, far first as Bevy sorts its transparent phase, through the ribbons' sort pass (mod.rs, sort.rs, vfx_sort_fill.wesl); examples and GPU tests dropped"
+reason = "frame-pure particles (raea #52): a new particle seeded by its spawn index, not the dead slot it recycles (vfx_init.wesl), and blended effects sorted by view depth from the main camera, far first as Bevy sorts its transparent phase, through the ribbons' sort pass (mod.rs, sort.rs, vfx_sort_fill.wesl); examples and GPU tests dropped; and no colon in a shader module's label (mod.rs's utils, the contract tests'), which DX12's DXC takes as a file name that names no file on Windows (raea #196)"
 exit = "a hanabi with a deterministic mode (both changes offered upstream); then back to the git dependency and drop the copy"
 
 [usvg]
