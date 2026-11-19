@@ -11,10 +11,7 @@ use crate::{Codec, R, encode_dir};
 /// --manifest, HEVC's quality 0..1), from the frames `render` writes when given the same arguments with -o FOLDER/ and
 /// --manifest in place of -o OUT.mov; what it said, APPLIED as the movie.
 pub fn render_movie(args: &[String], out: &Path, codec: Option<&str>, manifest: Option<PathBuf>, quality: f32, render: impl Fn(&[String]) -> R<String>) -> R<String> {
-    let codec = codec.map_or(Ok(Codec::default_here()), Codec::parse)?;
-    if !codec.here() {
-        return Err(format!("{} is written through VideoToolbox, on a Mac: --alpha-codec rle (QuickTime Animation) or png here", codec.name()));
-    }
+    let codec = Codec::chosen(codec)?;
     if let Some(d) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }

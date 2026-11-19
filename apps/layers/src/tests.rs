@@ -402,3 +402,19 @@ fn a_pan_inside_its_box_is_keyed() {
     let dw = 3840.0 * 1920.0 / 2160.0;
     assert!(near(centre(&from), (dw / 2.0 - 540.0) / 1080.0) && near(centre(&to), -(dw / 2.0 - 540.0) / 1080.0));
 }
+
+#[test]
+fn a_windows_path_is_a_file_url_an_editor_opens() {
+    // #195: 0.1.8-rc8 wrote file://localhostD%3A%5CWork%5C... for D:\Work\...; Resolve imported the same XML at once with
+    // file:///D:/Work/...
+    use crate::xml::pathurl;
+    use std::path::Path;
+    assert_eq!(pathurl(Path::new(r"D:\Work\_research\raea\xmltest\public\clip.mp4")), "file:///D:/Work/_research/raea/xmltest/public/clip.mp4");
+    assert_eq!(pathurl(Path::new(r"\\?\C:\Users\Jürgen\my clip.mp4")), "file:///C:/Users/J%C3%BCrgen/my%20clip.mp4");
+    assert_eq!(pathurl(Path::new("C:/Users/me/out/xml/edit/graphics.rle.mov")), "file:///C:/Users/me/out/xml/edit/graphics.rle.mov");
+    assert_eq!(pathurl(Path::new(r"\\nas\clips\a.mp4")), "file://nas/clips/a.mp4");
+    assert_eq!(pathurl(Path::new(r"\\?\UNC\nas\clips\a.mp4")), "file://nas/clips/a.mp4");
+    // a Mac's or Linux's as before, a backslash there being part of a name
+    assert_eq!(pathurl(Path::new("/Users/me/my clip.mp4")), "file://localhost/Users/me/my%20clip.mp4");
+    assert_eq!(pathurl(Path::new(r"/tmp/a\b.mp4")), "file://localhost/tmp/a%5Cb.mp4");
+}
