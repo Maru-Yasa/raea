@@ -138,8 +138,9 @@ loader (Debian and Ubuntu: apt install libxkbcommon-x11-0 libxcursor1 libxi6 lib
       cp "$bin/$f" "$stage/bin/"
     done
     # and what a PC with nothing installed and no downloads needs (tools/release/win-bundle.sh): the VC++ runtime
-    # raea.exe and onnxruntime.dll import, FFmpeg (raea's LGPL build) and uv, each with its licence
-    for f in $(cat "$root/tools/release/win-bundle.files"); do
+    # raea.exe and onnxruntime.dll import, FFmpeg (raea's LGPL build) and uv, each with its licence; the list read without
+    # its \r, as GitHub's Windows runner checks it out with CRLF (0.1.8-rc9 looked for "vcruntime140.dll\r")
+    for f in $(tr -d '\r' < "$root/tools/release/win-bundle.files"); do
       [ -f "$bin/$f" ] || { echo "release.sh: $bin has no $f (tools/release/win-bundle.sh $bin)" >&2; exit 1; }
       cp "$bin/$f" "$stage/bin/"
     done

@@ -1710,8 +1710,10 @@ impl FromWorld for UtilsPipeline {
         debug!("Create utils shader module:\n{}", shader_code);
         #[allow(unsafe_code)]
         let shader_module = unsafe {
+            // no colon in a shader module's label: DX12's DXC takes it as the source's file name, and on Windows
+            // "hanabi:shader:utils" names no file, so every Bevy app failed there wherever DXC loads (raea #196)
             render_device.create_shader_module(ShaderModuleDescriptor {
-                label: Some("hanabi:shader:utils"),
+                label: Some("hanabi_shader_utils"),
                 source: shader_source,
             })
         };

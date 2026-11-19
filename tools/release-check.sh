@@ -153,7 +153,7 @@ keys=$(grep -rlE 'sk-or-v1-[0-9a-f]{20}|sk-ant-[A-Za-z0-9_-]{20}|(^|[^A-Za-z0-9+
 # Windows: our binaries, and Microsoft's only where raea ships them on purpose, with their licences: ONNX Runtime's
 # onnxruntime.dll (MIT, #110) and the VC++ runtime's four DLLs (tools/release/win-bundle.sh). Any other DLL, or a file
 # named like the CRT, the SDK or DirectX's redistributables, isn't ours to ship.
-bundle=$(cat "$(dirname "$0")/release/win-bundle.files")
+bundle=$(tr -d '\r' < "$(dirname "$0")/release/win-bundle.files")
 allowed=$(printf './bin/%s\n' raea_bundle.dll onnxruntime.dll $bundle)
 ms=$(cd "$check/raea" && find . -type f \( -iname '*.dll' -o -iname 'vcruntime*' -o -iname 'msvcp*' -o -iname 'ucrtbase*' -o -iname 'api-ms-win*' -o -iname 'concrt*' -o -iname 'vccorlib*' -o -iname '*.lib' -o -iname '*.pdb' -o -iname 'd3dcompiler*' -o -iname 'dxcompiler*' -o -iname 'dxil*' \) | grep -ivxF "$allowed" | head -5 || true)
 [ -z "$ms" ] || fail "files that aren't ours: $ms"

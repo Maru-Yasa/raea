@@ -424,6 +424,7 @@ jobs:
           lfs: false
           sparse-checkout: |
             tools/release-check.sh
+            tools/release/win-bundle.files
             tools/release/lavapipe.sh
           sparse-checkout-cone-mode: false
           path: check
@@ -437,7 +438,8 @@ jobs:
         run: |
           set -e
           v=${TAG#v}
-          cp check/tools/release-check.sh "$RUNNER_TEMP/"
+          # and the list of what bin\ must carry, where release-check.sh looks for it (release/ beside it)
+          cp check/tools/release-check.sh "$RUNNER_TEMP/" && mkdir -p "$RUNNER_TEMP/release" && cp check/tools/release/win-bundle.files "$RUNNER_TEMP/release/"
           rm -rf check
           cd "$RUNNER_TEMP/zip"
           sha256sum -c "raea-$v-windows-x86_64.zip.sha256"

@@ -191,7 +191,7 @@ fn create_sort_pipeline(
         crate::test_utils::compile_wesl(VFX_SORT_WESL.as_ref(), &["HAS_DUAL_KEY", "TEST"], &[])
             .unwrap();
     let shader = wgpu_device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("hanabi:test:vfx_sort"),
+        label: Some("hanabi_test_vfx_sort"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
     let pipeline = wgpu_device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -724,7 +724,7 @@ fn location_mapping_contracts() {
     let wgpu_device = device.wgpu_device();
 
     let shader = wgpu_device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("hanabi:test:location:shader"),
+        label: Some("hanabi_test_location_shader"),
         source: wgpu::ShaderSource::Wgsl(
             r#"
 struct BatchInfo {
@@ -926,7 +926,7 @@ fn indirect_plus_update_routing_contracts() {
     let wgpu_device = device.wgpu_device();
 
     let indirect_shader = wgpu_device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("hanabi:test:indirect-lite"),
+        label: Some("hanabi_test_indirect-lite"),
         source: wgpu::ShaderSource::Wgsl(
             r#"
 struct Spawner {
@@ -964,7 +964,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         ),
     });
     let update_route_shader = wgpu_device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("hanabi:test:update-route"),
+        label: Some("hanabi_test_update-route"),
         source: wgpu::ShaderSource::Wgsl(
             r#"
 struct BatchInfo {
