@@ -57,14 +57,32 @@ fn esc(s: &str) -> String {
 }
 
 /// A file's path as xmeml's pathurl: file://localhost and the absolute path, each byte outside the unreserved set
-/// percent-encoded.
-fn pathurl(p: &Path) -> String {
-    let mut out = String::from("file://localhost");
-    for b in p.to_string_lossy().bytes() {
-        if b.is_ascii_alphanumeric() || b"/-_.~".contains(&b) {
-            out.push(b as char);
+/// percent-encoded. A Windows path is made a URL as a path, not as text (#195: 0.1.8-rc8 wrote
+/// file://localhostD%3A%5CWork%5C..., which Resolve refused): a drive's is file:///D:/Work/clip.mp4, the form Resolve
+/// opened, and a share's file://nas/clips/clip.mp4, each with its separators as slashes and Windows' \\?\ prefix off.
+pub(crate) fn pathurl(p: &Path) -> String {
+    let s = p.to_string_lossy();
+    let s = match (s.strip_prefix(r"\\?\UNC\"), s.strip_prefix(r"\\?\")) {
+        (Some(share), _) => format!(r"\\{share}"),
+        (None, Some(local)) => local.to_string(),
+        _ => s.into_owned(),
+    };
+    let b = s.as_bytes();
+    let drive = b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && matches!(b[2], b'\\' | b'/');
+    let (mut out, rest, windows) = if drive {
+        (format!("file:///{}:", b[0] as char), &b[2..], true)
+    } else if let Some(share) = s.strip_prefix(r"\\") {
+        (String::from("file://"), share.as_bytes(), true)
+    } else {
+        (String::from("file://localhost"), b, false)
+    };
+    for &c in rest {
+        if windows && c == b'\\' {
+            out.push('/');
+        } else if c.is_ascii_alphanumeric() || b"/-_.~".contains(&c) {
+            out.push(c as char);
         } else {
-            let _ = write!(out, "%{b:02X}");
+            let _ = write!(out, "%{c:02X}");
         }
     }
     out
