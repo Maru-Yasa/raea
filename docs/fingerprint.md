@@ -317,8 +317,9 @@ not only what was corrected. Notes still matter. They teach what the numbers can
   rules. Everything Fingerprint already does applies to it: finding the one that applies, inheriting evidence, being
   taught by notes, being shared with a team and keeping its evidence when an encoder upgrades.
 - **What ships runs on shipped models, on the person's machine.** Reading, embedding, storing and building new videos
-  from a videoform use only the models raea ships, plus at most one or two light additions. There are no paid language
-  model APIs in the product.
+  from a videoform use only the models raea ships, plus at most one or two light additions. Nothing in it needs a paid
+  model API. Pro and Studio add raea's own pool of clef checks and content intelligence on top (decision 12), and it
+  only ever speeds the work up.
 - **The domain vocabulary comes from the person's own AI.** The agent already in raea (Claude, Kimi, any of them) turns
   the context line into the things to look for. That adds no new bill and no shipped domain packs.
 - **What stays the same across the references is the videoform; what varies is the content.** A rule's strength is
@@ -852,6 +853,17 @@ What's left, in order:
     room for more.
 11. **Nothing moves by surprise.** Old files are read where they are until `raea doctor --fix`, or the app, moves them.
     A check run before and after the move gives the same findings (FP15j).
+12. **Pro and Studio include checks and content intelligence** (Shane, 11-20). Each month's pool (about 8,000 frames
+    checked on Pro, ten times that on Studio) stops when it's spent and is never billed past. It pays for two things:
+    - **clef-omni answering the fingerprint's questions** about a render's frames (`POST /v1/clef/ask`), so the agent
+      reads answers in words and opens only the frames they flag. Its verdicts are another eye's (FP6d), and it serves
+      the axes with no labels yet and the rubric's model judge.
+    - **content intelligence for references** (`GET /v1/intel/...`): public posts, videos, transcripts and ads, to find
+      a videoform's references by what performs and keep them current. A source's views and engagement are another
+      eye's evidence too, never the person's taste. A reference found this way is still read once, as VF1 reads any
+      link, and VF1's rights confirmation still applies.
+
+    Without a pool, everything here still works locally, and clef runs on the person's own Cloudflare account.
 
 ## Deferred
 
