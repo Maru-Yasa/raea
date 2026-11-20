@@ -6,6 +6,9 @@ Feature: Fingerprint: a person's or a team's sense of good work, learned on thei
   all these comments or notes or through post mortem process that the agent can run ... and if you have a team, you can
   distribute those embedding models." The plan, its measurements and the reference design (earshot,
   github.com/Leonxlnx/earshot, MIT: its methods, not its code): docs/fingerprint.md.
+  Shane, 2026-11-20: "consolidate fingerprints, videoform and everything into one big thing" (FP15). Notes (DR5-DR9,
+  from direction.feature Part 2) and the videoform (VF1-VF13, planned by @wackyza in raea #207, from videoform.feature)
+  moved here with their IDs.
 
   The model this file sets:
     1. A fingerprint is a taxonomy of axes, one small head per axis over frozen, pinned on-device encoders, a person's
@@ -17,6 +20,10 @@ Feature: Fingerprint: a person's or a team's sense of good work, learned on thei
        the brief, never into a head.
     4. Every score is held out by project before it's trusted, and every axis has cheats that must still be caught.
     5. Agents get the axis and the moment, never the number.
+    6. A fingerprint holds everything raea knows of good work for a person, a team, a project or a kind of video: its
+       taste, its rules, its axes, its ranges, a rubric and a videoform, each optional (FP15). `which` chooses one for
+       a piece and every part comes from it; `raea check` holds a piece to all of them in one list; every label
+       teaches the one that judged.
 
   Background:
     Given the spike of 11-12 (~/films/fingerprint-spike: Python in a scratch venv, not repo code): Shane's 205 pinned
@@ -721,3 +728,545 @@ Feature: Fingerprint: a person's or a team's sense of good work, learned on thei
         (a_stuck_axis_on_another_encoder, ignored, on "me"'s own evidence): on SigLIP 2's picture columns glow holds
         out 0.90, 0.11 better, on the change columns 0.52. So raea's base taxonomy reads glow from pictures (as
         FP4b's bootstrap curve already measured it); no adapter was needed, and the trainer for one isn't chosen
+
+  Rule: FP15. One fingerprint: taste, rules, axes, ranges, a rubric and a videoform
+    # Shane, 11-20: "consolidate fingerprints, videoform and everything into one big thing". Until then six things held
+    # what raea knows of good work, each with its own file, command and reader: taste.ts, controllers' rule fields,
+    # notes kept as checks, Fingerprint, the videoform plan (#207) and raea judge. An agent read three files and ran two
+    # commands to learn what it was held to; a note taught one of them and not the others; a team shared some of them
+    # and not the rest. Now each is a part of one fingerprint folder, chosen once by `which`, checked once by `raea
+    # check`, and taught by one loop (docs/fingerprint.md, "One fingerprint").
+    # The size limits: raea-app-fingerprint (1,962 lines), raea-sys-fingerprint-use (1,956) and raea-cli (2,000) have no
+    # room, so the parts are read by a crate of their own (raea-app-fingerprint-parts, apps), and the fingerprint
+    # crates grow only by a dispatch line or two each.
+    @needs:FP14c
+    Scenario: FP15a. One folder, every part optional
+      Given the plan
+        | crate                      | file                                 | lines | job                                                                    |
+        | raea-core-brief            | core/brief/src/rules.rs              | 120   | rules.ts's types: a rule's words, its check (one of raea's by name with its values, or a .ts check's path), its level, its origin (taste, controller, note, videoform, the person) and its strength |
+        | raea-core-brief            | core/brief/src/rubric.rs             | 90    | rubric.ts's types: scores and defects, each with its sheet and its question, and the pass |
+        | raea-app-fingerprint-parts | apps/fingerprint-parts/src/lib.rs    | 160   | a fingerprint folder's parts read: taste.ts and taste/KIND.ts, rules.ts, rubric.ts, the videoform section; each said with its file |
+      Then a fingerprint folder may hold fingerprint.ts, taste.ts (and taste/KIND.ts), rules.ts, rubric.ts,
+        vocabulary.ts, words.f16, heads.safetensors, profiles/, read/, evidence.jsonl with evidence.f16, and report.json,
+        and every part is optional
+      And taste.ts, rules.ts and rubric.ts are typed by raea/fingerprint (`taste`, `rules`, `rubric`), and raea/brief's
+        `taste` stays exported for files written before
+      And `raea fingerprint report NAME` says, for each part it has, what it holds and how sure it is
+
+    @needs:FP15a
+    Scenario: FP15b. Taste moves in
+      Given the plan
+        | crate                      | file                                 | lines | job                                                                    |
+        | raea-app-fingerprint-parts | apps/fingerprint-parts/src/migrate.rs | 180  | `raea doctor --fix` moves ~/.raea/taste into the person's fingerprint, a workspace's taste.ts into the workspace's, and controllers' rule fields into rules.ts; each move said, and put back by --undo |
+      Then the person's ~/.raea/taste/taste.ts and its kind files (motion, games, sound, ui) become the taste of the
+        person's own fingerprint (taste.ts and taste/KIND.ts), and a workspace's taste.ts the taste of the workspace's
+      And until they're moved they're read where they are, as today; `raea doctor` says they can be moved, and `raea
+        doctor --fix` moves them, leaving a one-line pointer behind
+      And a taste line with one of the six check forms (text-hold, text-above, text-below, text-margin, loudness,
+        still-max) is read as a rule too, its origin "taste", so every taste file checks as it did
+      And RAEA_TASTE still names a taste folder to read in place of the person's (tests and bench runs)
+
+    @needs:FP15a
+    Scenario: FP15c. Rules move in
+      Then a rule is a line in rules.ts with its check, wherever it came from: a controller's `rule` field (DR4), a note
+        kept as a rule (DR8), a videoform's mined rule (VF8), or the person writing it
+      And a controller's `rule` field is read as a rule of its level's fingerprint (the workspace's or the project's)
+        until `raea doctor --fix` moves it; controllers keep their settings and workflows
+      And the app's Controllers page sends a rule to the Fingerprints page
+
+    @needs:FP15b,FP15c
+    Scenario: FP15d. Which brings every part
+      Given the plan
+        | crate                      | file                                 | lines | job                                                                    |
+        | raea-app-fingerprint-parts | apps/fingerprint-parts/src/walk.rs   | 140   | a piece's fingerprint by `which`, then up its `extends` chain: every level's taste, rules with the nearer winning on the same check, a kind's taste file when the brief's modes need it |
+        | raea-app-fingerprint       | apps/fingerprint/src/pick.rs         | 8     | `which --rules` prints the walk                                        |
+        | raea-app-direction         | apps/direction/src/check.rs          | 20    | `tastes` and the controllers' rules replaced by the walk               |
+      Given a piece in a project, in a workspace, on a person's account
+      Then one fingerprint judges it, chosen by `which` (FP14c), and its taste and rules are its own and its parents'
+        up the `extends` chain; where two rules hold the same check, the nearer one wins
+      And `raea context` prints that walk's taste and rules in words, with a videoform's template and ranges, in place
+        of reading three taste files and the controllers
+      And `raea fingerprint which PATH --rules` prints the one chosen and why, then each taste file and rule it brings
+        with where it came from
+
+    @needs:FP15d
+    Scenario: FP15e. One check
+      Given the plan
+        | crate                      | file                                 | lines | job                                                                    |
+        | raea-app-fingerprint-parts | apps/fingerprint-parts/src/check.rs  | 160   | a fingerprint's ranges and its axes' flags as findings beside its rules, each naming its part and rule |
+        | raea-app-direction         | apps/direction/src/check.rs          | 15    | the parts' findings joined to the rules' and the floor's               |
+      When `raea check PROJECT` runs
+      Then the piece is held to raea's floor and to the fingerprint that judges it, in one list: its rules (taste's
+        check forms, what were controller rule fields, notes kept as rules, a videoform's mined rules), its ranges on
+        the render's measures, a videoform's structure and shot kinds (VF10, VF11), and its axes' flags (FP3a)
+      And a flag from a gated axis is a warning and one from an ungated axis a note, so an advisory head never fails a
+        render
+      And each finding names the part and the rule it came from ("rules.ts: captions clear the button band, kept from
+        note 3/n2"), and is routed as raea-app-check-cause routes any (#205): the footage's own fault is a note, and a
+        carried finding says so
+      And `raea fingerprint score` stays the axes' own reading, and its flags are the same findings, counted once
+
+    @needs:FP15d
+    Scenario: FP15f. One learning loop
+      Then every label lands in the fingerprint that judged the piece (FP14d), whichever part it teaches: a mark, a
+        note's asks and their checks passing or failing, an approval, a pick, a videoform's confirmations and blind
+        picks, a rubric's eye scores, version pairs, damage variants, the post-mortem's answers
+      And another model's readings and verdicts (clef, Kimi, the rubric's model judge) are kept as another eye's and
+        never counted as the person's (FP6d)
+      And a note's check that holds across rounds (DR7) is offered as a rule (DR8) in the fingerprint that judged, or
+        in the one above it if the person says so
+
+    @needs:FP15a
+    Scenario: FP15g. The rubric is a part, and raea judge folds in
+      Given the plan
+        | crate                      | file                                 | lines | job                                                                    |
+        | raea-app-judge             | apps/judge/src/rubric.rs             | 60    | the rubric read from the judging fingerprint's rubric.ts when it has one, raea's frozen rubric otherwise; its version kept in judge.json |
+        | raea-app-judge             | apps/judge/src/lib.rs                | 20    | eye scores written as evidence rows on the rubric's scores             |
+        | raea-app-fingerprint       | apps/fingerprint/src/verbs.rs        | 5     | `raea fingerprint judge` hands its arguments to raea-app-judge         |
+      Then `raea fingerprint judge DIR` judges a review's sheets on the rubric of the fingerprint that judges DIR's
+        project; today's seven scores, twelve defects and pass are the default, unchanged
+      And `raea fingerprint judge eye DIR SCORE=N...` keeps the person's scores as evidence, and calibration is the
+        rubric's gate, as a held-out AUC is an axis's
+      And a verdict keeps its rubric's version, and two rounds on different rubrics aren't compared for "done" or a
+        stall
+      And `raea judge` runs the same for one release and says the new name
+
+    @needs:FP15d,FP15e
+    Scenario: FP15h. One command, one manual section, one guide
+      Then `raea fingerprint` is the one verb for every part (new, add, refresh, which, score, teach, judge, report and
+        the rest), and `raea videoform` never ships
+      And the manual's Fingerprint section covers every part; the skill's fingerprint.md is the one guide an agent
+        reads for taste, rules, axes, a videoform and judging, and craft/ROUTER.md points there
+      And reference/files.md describes the folder and each part's fields, generated from the code
+
+    @needs:FP15d
+    Scenario: FP15i. One page in the app
+      Then the app's Fingerprints page shows each fingerprint's parts (its taste, its rules with where each came from,
+        its axes, its ranges, a rubric, and a videoform's references and template), each editable there
+      And the Controllers page keeps settings and workflows and sends a rule to the Fingerprints page; the rules
+        panel's tools (`rules_read`, `rule_add`) read and write rules.ts
+
+    @needs:FP15b,FP15c,FP15e
+    Scenario: FP15j. Nothing lost
+      Given the plan
+        | crate                      | file                                 | lines | job                                                                    |
+        | raea-app-fingerprint-parts | apps/fingerprint-parts/src/tests.rs  | 200   | parity: a workspace with taste files, controllers' rule fields and kept notes, checked before and after the move |
+      Then on a workspace with the person's taste and its kind files, a workspace taste.ts, controllers' rule fields
+        and notes kept as rules, `raea check PROJECT` gives the same findings at the same levels before `raea doctor
+        --fix` and after it, differing only in where each says it came from
+      And `raea context` prints the same lines before and after
+      And `raea doctor --fix --undo` puts every file back
+
+  # =====================================================================================================================
+  Rule: DR5-DR9. Notes become asks and checks, and rounds hold (from direction.feature Part 2, finding 1)
+
+    @needs:DR4 @done
+    Scenario: DR5. A note is restated before anything changes
+      # Status 11-10: built. A note is a file, notes/<round>/n<N>.ts, whose default export is note({...}) (raea/note):
+      # the person's words as a list, the first line as sent and each later one a correction they made, kept; where it
+      # came from ("app ITEM cm-N", "session"); its round; its pin as the app sent it (moment, place, part); whether it
+      # asks for a redesign; the asks the person corrected since; and its asks (Ask: text, medium, about, not, verb,
+      # check, values, proof). Note, Ask, Pin and Proof are world facts (core/facts note.rs) and TS types
+      # (facts.gen.ts); in a project's world each note is an entity with a Note. `raea notes take` writes what was sent
+      # or said, all at once as one round, never twice; `raea notes ls` gives each note's state ("to restate" until it
+      # has asks and none is corrected; then "to check" until each ask has a check or a clip to sign, DR6) and what its
+      # restatement owes: one ask from several sentences of the note as first sent, a medium its words name that no ask
+      # asks for or turns down in its `not`, a redesign whose asks keep nothing, an ask the person corrected. `raea
+      # notes post` shows each restated note's asks on its comment through `raea show --on ITEM --working cm-N --ask
+      # TEXT...`, and posts none that still owes something. The raea app (raea-feed 4f84878, raea.app 0.1.0-dev.1109.81)
+      # shows them under the comment as "<agent> read it as:", numbered, each with Correct, and "Correct the whole
+      # note"; a correction is an inbox line ({kind: "correction", comment, ask, text}) that the next `raea notes take`
+      # writes into the note as a new line of its words ("on ask 2: ..."), with the ask in `corrected`. The verb is
+      # per ask (Ask.verb; ROUTER.md's moves say a note with three asks is three moves).
+      # Fixed in the code (DR5): "the task reads 'to restate'" is the note's state in `raea notes ls`, beside its
+      # file; the app's comment task reads working with the asks once they're posted. A correction is no new sentence
+      # of the note: a one-ask note corrected stayed flagged "one ask from 2 sentences" after it was restated, so
+      # sentences are counted on the words as first sent. `raea notes post` keeps what it showed
+      # (.raea/notes-shown.json): a second post doesn't mark a comment the agent has since settled working again, and a
+      # correction taken clears its note there, so a restatement in the same words is still shown as its answer.
+      # The proof, end to end in a copy of raea.app 0.1.0-dev.1109.81 run headless with its own state and a scratch
+      # workspace (the release raea of this commit; nothing downloaded or spent): a still shown with `raea show`; an
+      # edit comment left on it and sent through the page ("I want 2D animated text with occlusion, not 3D text
+      # extrusion. Think of how a lyric video would be."); `raea notes take` wrote notes/1/n1.ts with those words. A
+      # restatement of one ask with no medium got four flags from `raea notes ls` (one ask from 2 sentences; 2D, 3D and
+      # extruded said and not asked or turned down); two asks with their medium and `not` owed nothing. `raea notes
+      # post` put "Claude Code read it as:" with both on the comment, and a second post sent nothing. Correct on ask 2,
+      # typed in the page, wrote the correction line and showed "You: ..." under it; the next take wrote it in as "on
+      # ask 2: no, the whole line at once, on the beat" with corrected [2], ls said to restate it, post held it back,
+      # and a second take wrote nothing. Restated, post showed the new ask 2 and the page dropped the "You:" line. I
+      # looked at the page at each step (frames from its window).
+      # Proved by tests in raea-core-facts (16: five for notes, and the generated TS types match) and raea-app-notes
+      # (6: take once and by round, corrections once, ls's states and flags, post once and none owing, files in order,
+      # a note as an entity).
+      # Not seen, or left: an agent restating a note on its own (here I wrote the asks); a note pinned to a part (the
+      # comment had no pin) or a moment; a note on an item as a whole, which post can only report; and the craft
+      # verbs are named per ask but nothing checks one is in the set. `about` is the agent's word: the pin's part is
+      # carried as the app sent it, and finding it in the world is DR6's check.
+      Given the plan
+        | crate              | file                           | lines | job                                                                    |
+        | raea-core-facts    | core/facts/src/note.rs         | 230   | Note: words, from, round, pin, asks; Ask: text, medium, about, not, check, proof |
+        | raea-app-notes     | apps/notes/src/lib.rs          | 220   | `raea notes take, ls, post`; the project's notes read; a note as an entity in the world |
+        | raea-app-notes     | apps/notes/src/take.rs         | 280   | what the app sent and what was said, as note files; the person's corrections written in |
+        | raea-app-notes     | apps/notes/src/post.rs         | 120   | each restated note's asks posted back on its comment in the app, once  |
+      # Fixed in the code (DR5): the notes are a crate of their own, raea-app-notes (apps/notes), not apps/direction
+      # notes.rs. apps/direction is 1,504 of its 2,000 lines with its tests, and DR6 and DR7 add to it; `raea notes
+      # check, retire, keep` come with DR6, DR7 and DR8, in this crate, which apps/direction reads the notes through.
+      And sdk/raea/src/note.ts (about 90 lines): `note({...})` for notes/<round>/<id>.ts
+      And notes sent from the app (review.feature R3a: their words, their pin with its frame, place and part), or
+        said in a session
+      When `raea notes take` runs (the agent runs it first, on receiving them)
+      Then each note is a file with the person's words verbatim and no asks yet, and the task reads "to restate"
+      And the agent writes its asks: every separate thing the note holds, one ask each; the medium where the words
+        name one (2D, 3D, flat, extruded, real, modelled, voxel); what it is about (the pin's part, found in the
+        world, or a query); and `not`: what the note does not ask for, so a change keeps the rest
+      And a note with one ask and more than one sentence of words is flagged for a second reading, and a note that
+        asks for a redesign ("from scratch", "not the vibe", "redesign") is marked so: its asks say what is kept
+      And the verbs (skills/skills/raea/craft/verbs) are per ask, not per note
+      And the restated asks are posted back on the note in the app before work starts, where the person can correct
+        one in a word; a correction is a new line of the note, kept
+
+    @needs:DR5 @done
+    Scenario: DR6. Each ask gets a check that fails now, or a clip to sign
+      # Status 11-10: built. An ask names its check (one of raea's by name, or a .ts check by its path from the note's
+      # folder), its values, the composition it is about (`of`) and, where it can't be measured, its proof, a clip to
+      # sign. `raea notes check` runs each ask's check as a rule through `raea check`'s run (apps/direction, lent by the
+      # CLI), only on the composition the ask names (Rule.of), and keeps what each ask has been through in
+      # .raea/notes-checks.json: a check whose first run passes is refused (exit 1); one that fails is kept with its
+      # values, and the work may change; a check changed after it failed is to be shown failing again. Each finding's
+      # `by` is its ask (note n1.2), so two asks running one check are counted apart, and `raea check` runs the notes'
+      # checks beside the rules, marking their findings with the ask. A clip is cut with ffmpeg from the composition's
+      # newest render (the shot's frames, or the ask's), again only when the render or the frames change, and nothing
+      # is cut from a render the composition changed after. The person's sign comes from the app's inbox with the
+      # render's sha256 and their name when signed in; `raea notes take` keeps the last one per ask. An ask reads to
+      # check, failing, to sign, passing or signed, the note its worst (to restate before any); `raea notes ls` says
+      # each, and `raea notes post` sends the badge, each ask's state and each clip to sign (`raea show --working
+      # --status --states`, `--sign N --clip --render`). raea/check gained a per-rule memo, `after` (run once past the
+      # last frame), `named`, `turned` and `inside`; five worked checks ship in sdk/guides/craft/checks, copied into the
+      # skill as craft/checks: rides, flat-type, faces, stands-on, shot-length, no-part.
+      # Run on: bench/direction/asks/asks.sh with this commit's raea, every case as expected (35). Each worked check
+      # passes its piece and fails every cheat (ride turned 33.2 degrees and moved 29 mm, 10 cm into the chair's back,
+      # the rider gone; the lyric 2 mm deep, with nothing in front of it, its words changed; a desk turned 180 degrees,
+      # the kettle on a desk, the desks renamed so neither check has anything to measure; the reveal 2.0 s, the shot
+      # renamed; an orb, renamed to lamp-glass, scaled tiny). The notes' flow on a project of its own: three notes said,
+      # restated, two failing first and one refused (its check named a part the office hasn't), that check fixed and
+      # failing, the work changed until all pass, the reveal's clip cut (4.0 s, 120 frames), a sign kept, and the
+      # shortened hold reopening it. And end to end in a copy of the raea app (0.1.0-dev.1109.87, its own state; the
+      # app side is raea-feed 5fa93c7 and 1317a9d): the hold shown, "Hold the reveal longer, and let me see it."
+      # written and sent in the page, taken, posted as "to restate", restated as a check and a clip, checked failing
+      # and posted ("failing", ask 2 "to check"), the hold made 4 s and rendered, checked passing, the clip posted
+      # under ask 2 with "Sign: this is what I asked for", the agent's --done refused ("cm-1 is a note: it closes when
+      # the person retires it, not when the agent marks it done"), signed in the page (the inbox line's render matched
+      # the clip's), taken and posted as passing; the hold shortened again read to check, and its new render's clip
+      # came back unsigned. I looked at the page at each step and at the clip's frames: the reveal alone, no lead-in.
+      # Proved by tests in raea-core-facts (16), raea-app-notes (10: post with states and clips, an ask's check failing
+      # first, refused, counted apart and run alone with --only, a changed check; signs named and unnamed, a newer
+      # render and a changed composition; no clip from a stale render; how an ask names its composition),
+      # raea-app-direction (16), raea-runtime-world (15: an element that covers is named by its component) and
+      # engine/cli/conformance/show.test.ts (5: what --status, --states and --sign send, and what's refused first).
+      # Not seen, or left: an agent restating a note and choosing its check on its own (I wrote the asks); a sign with
+      # a name (the copy had no account signed in); the pieces are flat colour and boxes, so no clip had motion to
+      # judge; the five checks name things by name, model file or component until DR11 and DR16 give them kinds and
+      # relations; and a person retiring a note is DR7's.
+      Given the plan
+        | crate              | file                           | lines | job                                                                    |
+        | raea-app-notes     | apps/notes/src/check.rs        | 260   | `raea notes check`: each ask's check run as a rule on the work as it stands (the CLI lends apps/direction's run); a first run that passes is refused |
+        | raea-app-notes     | apps/notes/src/state.rs        | 220   | what each ask has been through, in .raea/notes-checks.json: its check as it first failed, its last run, its clip and the person's sign; to check, failing, passing, to sign, signed |
+        | raea-app-notes     | apps/notes/src/post.rs         | 220   | each note's state on its comment in the app, and each clip to sign     |
+        | raea-app-notes     | apps/notes/src/take.rs         | 300   | the person's signs from the app: their name and the render's hash      |
+        | raea-app-direction | apps/direction/src/check.rs    | 400   | the notes' asks as rules beside the others, each finding's `by` its ask; the notes' rules alone, for `raea notes check` |
+        | raea-core-facts    | core/facts/src/note.rs         | 260   | an ask's composition (Ask.of): where its check runs and its clip is cut from |
+        | raea-core-facts    | core/facts/src/rule.rs         | 200   | a rule held to one composition (Rule.of), as an ask's is               |
+        | raea-runtime-world | runtime/world/src/covers.rs    | 180   | a plain element that covers another is named by the component it was drawn in |
+        | raea-runtime-world | runtime/world/src/renders.rs   | 300   | the composition's folder kept with its render, for that element's Source |
+        | raea-cli           | engine/cli/src/cli.rs          | 380   | `raea notes` lent apps/direction's run                                 |
+      And engine/cli/src/show.ts: `--status S --states S1,S2` with `--working` (the note's state for the badge, and each
+        ask's) and `--sign N --clip FILE --render HASH` (a clip for the person to sign under ask N); sdk/raea/src/check.ts: a check's memo, kept
+        across its frames, and its `after`, run once past its last frame (a shot that runs to its end is measured, and
+        a part the ask names that no frame has is found, not passed); `named(world, id, kinds)`, how a check names a
+        part, a shot or a layer until DR11's taxonomy; and the worked checks, each a .ts file in
+        sdk/guides/craft/checks (copied into the skill as craft/checks), with a piece that holds it and a cheat in
+        bench/direction/asks, run by its asks.sh
+      # Fixed in the code (DR6): the worked checks' table had two rows whose facts no world holds yet. "this is low
+      # poly" is DR14's detail floor, measured at a component's `seenFrom` (DR11's meta); "the light isn't timed to the
+      # cut" needs the subject's own pixels in the render, which for a 3D or footage subject is DR19's mask. Each row
+      # moves to that scenario and ships with its cheat there. The other five are built on the world as it is, the
+      # parts named in the ask's values (by name, model file or component) until DR11's taxonomy and DR16's relations
+      # say them: the rider's offset and turn are held to the seat's as on its first frame until DR16 gives it a
+      # socket, and no part of the rider is inside a part of the seat (box in box: a 3D part is in no Covers); a front
+      # is the model's own axis given in the values until DR11 measures it, and StandsOn is measured from the boxes (a
+      # bottom on a top, inside its footprint) until DR16 declares it; "occlusion" is a cover by the subject where the
+      # render has one (a page layer), and a 3D or footage subject is DR19's.
+      Then an ask's check is a system (DR4) written in the note's file or named from raea's, and `raea notes check`
+        must show it failing on the work as it stands before the work may change (a check that already passes is
+        refused: it isn't measuring the ask)
+      And `raea check` runs the project's notes' checks with its rules (moved here from DR4, which has no notes to run)
+      And each finding carries the ask that asked for it (`by`), so two asks that use one named check are told
+        apart (the prototype counted both asks' findings against each until it did)
+      And where the ask can't be measured, its proof is a clip: `proof: { shot | frames, sign: true }`; it passes only
+        when the person marks it in the app (their name, the render's hash), and reopens when its source changes
+      And the app's task badge (R3) reads: to restate, to check, failing, to sign, passing, signed; "done" is never
+        typed by the agent
+      # Fixed in the code (DR6): "to sign" is added: a clip waiting on the person is neither the agent's to check nor
+      # passing, and the badge says whose move it is: a clip not cut yet, or cut from a render that's no longer the
+      # work, is the agent's (to check), as the app copy showed when "yours to sign" sat on an ask with no clip. And an ask names its composition (Ask.of), not only its clip:
+      # a project holds several, and an ask about the office's desks run on the hold's shots finds nothing there to
+      # measure and passes, so it would be refused for the wrong reason. Its check runs only where it applies (Rule.of;
+      # a controller's rules leave it unset and run everywhere, as before), and its clip is cut from that composition's newest render.
+      And worked checks ship in the skill for the asks that recur, each with its cheat:
+        | the ask, as a person says it                         | the check                                                     |
+        | "the seat turns with the computer"                    | Rides: offset and turn from its socket every frame; no Covers of the rider by the seat's parts |
+        | "2D text with occlusion"                              | Text.extruded is false; Layer.medium is 2d-type; MaskedBy the subject where they meet |
+        | "desks face the wrong way", "kitchen props on a desk" | every Part's `meta.front` toward what it serves; no Part of kind X StandsOn kind Y           |
+        | "hold this longer"                                    | the Shot is at least N seconds                                |
+        | "no orbs anywhere"                                    | no Part of the named component in any frame                   |
+
+    @needs:DR6
+    Scenario: DR7. Rounds hold
+      When `raea check` runs, or a render is asked for
+      Then every round's notes run; one that passed in an earlier round and fails now is a regression, reported
+        first, with its note's words and the commit that broke it (the record, DR3)
+      And `raea render` of a composition whose project has a note to restate, to check, or regressed is refused,
+        naming them, unless `--despite ID "why"`, which is written into the manifest and shown on the post
+      And a note is retired only by the person (`raea notes retire ID --by NAME`, or in the app), and a redesign's
+        note retires the checks it names as replaced, never silently
+
+    @needs:DR7
+    Scenario: DR8. A note's check climbs to a rule in a fingerprint
+      Given the plan
+        | crate              | file                           | lines | job                                                                    |
+        | raea-app-notes     | apps/notes/src/keep.rs         | 90    | `raea notes keep ID --as project, workspace or me`: the check written to that fingerprint's rules.ts |
+      # Fixed in the code (DR4): the field type `rule` and reading rule fields as checks were planned here
+      # (rule_field.rs, and rules.rs's first job). `raea check` needed both to run a project's rules, so DR4 built them:
+      # Kind::Rule in core/brief controller.rs, and the rules read in apps/direction check.rs.
+      # 11-20 (FP15c): a kept rule lands in a fingerprint's rules.ts, not a controller's rule field or the taste file.
+      Then `raea notes keep` writes a note's check as a rule in rules.ts of the project's, the workspace's or the
+        person's own fingerprint, its origin the note; the note keeps a pointer, and the check's text is not copied
+      And the taste loop (docs/craft-system.md J) proposes this when a correction repeats, as it does now, and now
+        for any check, not six forms
+      And a rule's values (a limit, a list of kinds) are edited on the app's Fingerprints page like any field, and
+        the check reads them: "how do controllers become rules" is this
+      And `raea fingerprint which PATH --rules` lists every rule that applies to a project and where it came from
+
+    @needs:DR6
+    Scenario: DR9. A check that can be gamed is found before it's trusted
+      Then every named check ships with cheats that must fail it, run in CI: the ask met on one frame only; the part
+        hidden, renamed, scaled to nothing or moved off frame; the text made 2D by a depth of 0.001; the rider
+        detached from its seat; the check's own limit edited
+      And an agent may not edit a note's check after it first failed, except to tighten it; a loosened check is a
+        finding against the commit
+
+  # =====================================================================================================================
+  Rule: VF1. Videos in: from the local drive, or streamed from a URL, read once
+    # The videoform (raea #207, @wackyza, 11-19), moved here 11-20: a fingerprint's `videoform` section, made and fed by
+    # `raea fingerprint`, its mined rules in rules.ts (FP15). Its plan is docs/fingerprint.md, "A kind of video". What
+    # it builds on, from #207's background:
+    # Given the readers raea has: footage perception (systems/footage), Fingerprint's columns (systems/columns: SigLIP 2,
+    #   CLAP, YAMNet, cached by content hash), Parakeet's words, Beat This!, HTDemucs and Silero VAD (systems/song), OCR,
+    #   Depth Anything 3, and raea check's one decode of the picture (raea-app-check-read once.rs)
+    # And Fingerprint's fingerprint.ts (`about`, `extends`, `applies`, axes, encoder pins), its profiles (FP6e: ranges by
+    #   measure name, critique, leave-one-out), `which` (FP14c) and evidence rows (FP2c)
+    # And controllers' `rule` fields and raea/check's `.ts` checks over the world (DR4), run by `raea check PROJECT`
+    # And the crate limits (a file at most 500 lines, a crate at most 2,000): raea-sys-fingerprint, -fingerprint-use and
+    #   raea-app-fingerprint are each within 150 lines of theirs, so a videoform's code is its own crates, and the
+    #   fingerprint crates grow only by a field and a map
+    # And the layers: a systems crate depends sideways only on a facility, so reading (which uses footage, columns and
+    #   song) is apps' (raea-app-videoform), and the maths over kept rows is systems' (raea-sys-videoform)
+
+    @needs:VF2
+    Scenario: VF1. A reference from the drive or a URL, with nothing downloaded
+      Given the plan
+        | crate              | file                              | lines | job                                                                    |
+        | raea-app-videoform | apps/videoform/src/ingest.rs      | 220   | paths, folders and URLs to sources: content hash, source URL, title, creator, date; a source read before is recognised and not read again |
+        | raea-app-videoform | apps/videoform/src/rights.rs      | 80    | the rights prompt, once per account, and its answer kept with the account |
+      When the person runs `raea fingerprint add NAME PATH|URL...`
+      Then a file or a folder on the drive is read where it is, with no copy made
+      And a direct link to a media file is decoded straight from the network, and a platform page, a playlist or a
+        channel (`--last N`) is resolved (VF1b) into stream URLs that are decoded the same way
+      And nothing but the readings is written: no video file is kept, in a cache or anywhere else
+      And each source is known by the content hash of its decoded picture and sound, beside its URL, title, creator
+        and date, so adding it again reads nothing
+      And before the first source from a URL, once per account, the person confirms they have the right to use what
+        they add; raea says a videoform keeps measurements and vectors, never the video, and that a platform's terms
+        are the person's to keep
+      And a login-only or private link is refused with the site's reason, and streams are read at 1080p at most
+
+    @needs:VF1
+    Scenario: VF1b. The resolver: yt-dlp, kept current by raea
+      Given the plan
+        | crate           | file                       | lines | job                                                                    |
+        | raea-io-resolve | io/resolve/src/lib.rs      | 60    | a page URL to its videos' stream URLs and headers                      |
+        | raea-io-resolve | io/resolve/src/fetch.rs    | 220   | the standalone yt-dlp for this platform fetched into ~/.raea/bin, checked against the release's SHA-256 sums; the pinned version, the daily move forward, the one before kept |
+        | raea-io-resolve | io/resolve/src/formats.rs  | 140   | `yt-dlp -J` read: the best stream at 1080p or under, its URL and headers; a playlist's or channel's entries |
+      Then yt-dlp (Unlicense) is used only to resolve, never to download, and is fetched on first use as FFmpeg is on
+        Windows
+      And each raea release pins the version it was tested with; between releases raea checks the latest at most once
+        a day when a URL is added, checks it against its sums, and keeps the version before
+      And when resolving fails with an extractor error, raea fetches the latest and tries once more; if the new one
+        fails where the old one worked, it goes back and says which site failed
+      And a site that needs JavaScript run (YouTube) gets a runtime raea ships or fetches, named to yt-dlp
+      And `raea doctor` prints the yt-dlp in use, its date and the last site that failed
+
+  Rule: VF2. A videoform is a kind of fingerprint
+
+    Scenario: VF2. `videoform` in fingerprint.ts, and `raea fingerprint new --videoform`
+      Given the plan
+        | crate                | file                                 | lines | job                                                                    |
+        | raea-core-brief      | core/brief/src/videoform.rs          | 140   | the videoform section's types (context, references, vocabulary, template, rules), with their TypeScript |
+        | raea-sys-fingerprint | systems/fingerprint/src/taxonomy.rs  | 20    | the optional `videoform` field on a fingerprint                       |
+        | raea-app-videoform   | apps/videoform/src/lib.rs            | 120   | the videoform's verbs' usage, flags and dispatch, called by `raea fingerprint` |
+        | raea-app-fingerprint | apps/fingerprint/src/verbs.rs        | 6     | `new --videoform`, `add` and `refresh` handed to raea-app-videoform    |
+        | raea-app-videoform   | apps/videoform/src/verbs.rs          | 240   | new --videoform, add and refresh                                       |
+      When the person runs `raea fingerprint new NAME --videoform "CONTEXT" [--extends FP] [--kinds K] [--tags T] [SOURCE...]`
+      Then a fingerprint folder is made with a `videoform` section, `extends` the person's fingerprint by default, and
+        `applies` from --kinds and --tags, where fingerprints are kept (the project's, the workspace's or the person's)
+      And `raea fingerprint which PATH` finds it for a piece as it finds any fingerprint, and says why
+      And `raea context` prints a project's videoform with its brief: its context, template, rules and ranges
+      And its references use brief.ts's `references` shape, `{ target, note }`, the target the source's hash and URL
+
+  Rule: VF3. Each reference read once, into the rows a videoform keeps
+
+    @needs:VF1
+    Scenario: VF3. One pass, every reader on its share
+      Given the plan
+        | crate              | file                            | lines | job                                                                    |
+        | raea-app-videoform | apps/videoform/src/pass.rs      | 300   | one decode of a file or a stream: shot bounds from the same pass, each shot's frames held until it ends, each reader fed |
+        | raea-app-videoform | apps/videoform/src/readers.rs   | 260   | perception, columns, words, the voice's pauses, beats, stems, OCR and depth into per-shot rows |
+        | raea-sys-videoform | systems/videoform/src/rows.rs   | 160   | the kept rows: per shot its SigLIP 2 vector, its CLAP vector and its measures, f16, with the encoders' pins |
+      Then each reference is decoded once, whether from the drive or a stream, and every reader takes its share
+      And each shot gets its SigLIP 2 vector (a few frames pooled), its CLAP vector over its sound, and its measures:
+        length, scale, camera move, caption boxes, light and colour, words, pauses at its edges, its place in the video
+      And reading runs at about real time or faster, measured on the test sets
+
+    @needs:VF3
+    Scenario: VF3b. What's kept is enough
+      Then a videoform keeps its per-shot rows, its vocabulary's vectors, its profile, its structure and rules, a small
+        still for each shot kind, and the person's evidence, and no reference video
+      And ten one-minute references come to about 1.5 MB, small enough to load at once and keep in git
+      And every test on the test sets (VF12) reads a set's references once, then runs on the kept files alone, with the
+        references moved away, and passes the same
+
+  Rule: VF4-VF8. Writing the videoform from the kept rows
+
+    @needs:VF3
+    Scenario: VF4. The ranges, in the videoform's profile
+      Given the plan
+        | crate                    | file                                     | lines | job                                                                    |
+        | raea-sys-videoform       | systems/videoform/src/ranges.rs          | 220   | the measures across the references: shot lengths, cuts a minute, pauses inside a line, between lines and between sections, words a minute, cuts against beats and sentence ends, music under voice, caption size, place and words at once, talking head against cutaway |
+        | raea-sys-fingerprint-use | systems/fingerprint-use/src/profile.rs   | 30    | a profile's measures beyond the fixed ones, by name, ranged and critiqued like the rest |
+      Then the videoform's profile holds every measure's range across the references, leave one out as FP6e checks it
+      And `raea fingerprint score --profile NAME` critiques a cut against the new measures as against the old
+      And a measure whose range is wide is recorded as free, not as part of the videoform
+
+    @needs:VF2,VF3
+    Scenario: VF5. The vocabulary, written by the person's AI
+      Given the plan
+        | crate              | file                              | lines | job                                                                    |
+        | raea-sys-videoform | systems/videoform/src/vocab.rs    | 180   | vocabulary.ts's terms against the kept rows: never fires, fires everywhere, confused pairs, recurring shots no term names |
+      When the person's AI writes vocabulary.ts from the context (places, things in them with several phrasings,
+        near-misses, OCR patterns for text on screen, things to ignore)
+      Then its terms become the videoform's word heads (FP2e), embedded once by the text towers
+      And `raea fingerprint report NAME` says what each term did on the references, and the AI revises it from that
+
+    @needs:VF5
+    Scenario: VF6. The shot vocabulary
+      Given the plan
+        | crate              | file                              | lines | job                                                                    |
+        | raea-sys-videoform | systems/videoform/src/kinds.rs    | 220   | the reference shots clustered on vectors and measures; each cluster named from the vocabulary, its ranges and how many references have it |
+      Then every reference shot belongs to a shot kind, named in the vocabulary's words, with its scale, move and length
+        ranges and the share of references that have it
+
+    @needs:VF6
+    Scenario: VF7. The structure, as a script template
+      Given the plan
+        | crate              | file                                 | lines | job                                                                    |
+        | raea-sys-videoform | systems/videoform/src/structure.rs   | 300   | the references aligned by their run of shot kinds and their script's meaning, into slots with their lengths and kinds; the template as NAME.script.ts |
+      Then the videoform's slots (open, sections, close) each have a length range, their shot kinds and what's on screen
+      And the template is a NAME.script.ts a project made to the videoform starts from, checked by `raea spec`
+
+    @needs:VF6,VF7
+    Scenario: VF8. Rules, with their strength, into rules.ts
+      Given the plan
+        | crate              | file                              | lines | job                                                                    |
+        | raea-sys-videoform | systems/videoform/src/rules.rs    | 240   | coverage, order and event rules from the kept rows, each with how strongly it holds; written to the fingerprint's rules.ts, each with its origin and strength |
+      Then a rule that holds in most references (a punch-in when a number is said; a close-up of the counters in every
+        kitchen) is a rule in rules.ts with its strength and its check
+      And the person confirms the strongest rules once, on a contact sheet of shot-kind stills, and each answer is
+        evidence in the videoform
+
+    @needs:VF4,VF6
+    Scenario: VF8b. When it doesn't hold together
+      Given the plan
+        | crate              | file                              | lines | job                                                                    |
+        | raea-sys-videoform | systems/videoform/src/groups.rs   | 180   | too few references, references in groups, traits that vary, outliers  |
+      Then under five references every rule and range is weak, and nothing gates on it
+      And references that fall into clear groups are reported, with a videoform offered for each, never averaged
+      And one reference far from the others on several measures is named, for the person to keep or drop
+
+    @needs:VF3
+    Scenario: VF8c. References added and removed; encoders upgraded
+      Given the plan
+        | crate              | file                              | lines | job                                                                    |
+        | raea-sys-videoform | systems/videoform/src/pins.rs     | 100   | the encoders' pins on the kept rows; what carries over an upgrade and what waits for refresh |
+      Then adding a reference reads only it and makes the videoform again from the kept rows, in seconds; removing one
+        drops its rows; the person's evidence stays through both
+      And a new encoder in raea leaves the videoform on its rows' pins, working as it was; the measures carry over; `raea
+        fingerprint refresh NAME SOURCE...` reads the references again for the new encoder, the one time they're needed
+
+  Rule: VF9-VF11. Following it, and checking it fast
+
+    @needs:VF7,VF8
+    Scenario: VF9. Following: the footage matched, what's missing said, the cut planned to the template
+      Given the plan
+        | crate              | file                              | lines | job                                                                    |
+        | raea-app-videoform | apps/videoform/src/follow.rs      | 200   | new footage read and matched to shot kinds; what the footage lacks; the plan slot by slot |
+      Then new raw footage is read as references are, and each shot matched to a shot kind against the kept rows
+      And before any cut the agent says what the footage lacks ("no close-up of the counters, which every kitchen in the
+        references has"), a shot list for the person
+      And the agent plans the cut from the template, slot by slot, and edits to the ranges
+
+    @needs:VF8
+    Scenario: VF10. A videoform's rules checked on the composition, before any render
+      Given the plan
+        | crate              | file                              | lines | job                                                                    |
+        | raea-app-videoform | apps/videoform/src/checks.rs      | 220   | the videoform's checks by name over the world: order, slot lengths, coverage, shot lengths, pauses, caption places and sizes |
+        | raea-app-direction | apps/direction/src/check.rs       | 15    | the videoform's checks run with the project's rules                    |
+      Then `raea check PROJECT` runs the videoform's rules with the fingerprint's others and raea's floor (FP15e), in
+        milliseconds
+      And each finding is routed as raea-app-check-cause routes any: a footage's own fault a note, a carried one said
+
+    @needs:VF6,VF10
+    Scenario: VF11. Embedding checks, only for shots that changed
+      Then each changed shot is held against its slot's shot kind, one SigLIP 2 frame a shot, and the run of shots
+        against the structure
+      And a shot that didn't change since the last check is not embedded again
+
+  Rule: VF12-VF13. Judged on the person's test sets
+
+    @needs:VF4
+    Scenario: VF12. The test bench
+      Given the plan
+        | crate              | file                              | lines | job                                                                    |
+        | raea-app-videoform | apps/videoform/src/bench.rs       | 200   | the person's sets as fixtures: leave one out, telling sets apart, edit to it, the verdicts kept |
+      Given the person's sets, 8 to 10 videos each from one creator or one format, some with raw footage
+      Then for each set, a videoform built from all but one reference holds the one left out (its rules pass, its
+        measures in range) more often than other sets' videos do, and rejects other sets' videos
+      And where raw footage for a held-out reference exists, the agent edits it to the videoform, set beside the original
+      And the bench runs after every step of this file, on every set, from the kept files alone
+      And the first proof that matters: on at least five sets, each videoform built leave one out holds its left-out
+        video's pacing and shot lengths and rejects other sets' videos, more often than chance by a clear margin
+
+    @needs:VF12
+    Scenario: VF13. The person's blind judging, kept as evidence
+      Given the plan
+        | crate              | file                              | lines | job                                                                    |
+        | raea-app-videoform | apps/videoform/src/judge.rs       | 150   | a pair shown unlabelled in a random order; the pick, the scores and the words kept, and as evidence |
+      Then the person sees the original and raea's edit side by side, unlabelled, in a random order, picks which they'd
+        post, scores pacing, shot choice, structure, graphics, sound and overall feel from 1 to 5, and says what's wrong
+      And each verdict is kept in the bench's record and is evidence in the videoform: a pick a pair (FP6b), a note a
+        label (FP5)
+
+  Rule: VF deferred
+    Scenario: Not in the videoform yet
+      Then an automatic judge for the test bench (a video-capable language model, paid by the person, in the bench only,
+        never shipped: fidelity, pairs, and gaps between what the references show and what the videoform holds)
+      And the order of the test sets
