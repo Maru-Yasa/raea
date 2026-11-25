@@ -15003,6 +15003,7 @@ dependencies = [
  "bytemuck",
  "dunce",
  "image",
+ "raea-core-facts",
  "raea-core-program",
  "raea-core-shape",
  "raea-gpu-device",
