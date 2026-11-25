@@ -122,12 +122,22 @@ fn draw(dir: &Path, file: &str, composition: Option<&str>, how: &[&str], env: &[
     if !run.status.success() {
         return Err(format!("the held render failed: {}", err.lines().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" | ")));
     }
-    Ok(())
+    unshaded(out)
+}
+
+/// A held run whose shaders didn't compile drew without them (a Solari pipeline that failed leaves the frame to
+/// whatever is left), and its light says nothing about the path it was held for: refused, with the shader's error.
+fn unshaded(out: &Path) -> R<()> {
+    let log = std::fs::read_to_string(out.join("render.log")).unwrap_or_default();
+    let Some(at) = log.find("failed to process shader") else { return Ok(()) };
+    let why: Vec<&str> = log[at..].lines().skip(1).map(str::trim).filter(|l| !l.is_empty()).take(3).collect();
+    Err(format!("a shader of this render didn't compile, so its frames aren't the light it was held for: {} ({}/render.log)", why.join(" "), out.display()))
 }
 
 /// The held frames of `dir` measured: DIR/steady.png and steady.json written, and the report, its "steady" saying
 /// whether the light held (`max`: the blotch a run may show, percent; MAX when None).
 pub fn report(dir: &Path, max: Option<f64>) -> R<Value> {
+    unshaded(dir)?;
     let max = max.unwrap_or(MAX);
     // the second half: the first is the light building from nothing, which a render's lead-in covers
     let files = held(dir)?;
@@ -236,5 +246,18 @@ mod tests {
         let blotch = measure(&frames(0.05, 0.05)).unwrap().0;
         assert!(blotch["blotch"].as_f64().unwrap() > 2.0, "{blotch}");
         assert!(blotch["spread"].as_f64().unwrap() > 0.6, "{blotch}");
+    }
+
+    /// A run whose shaders failed isn't measured: its frames are another light's.
+    #[test]
+    fn a_run_that_drew_without_its_shaders_is_refused() {
+        let dir = std::env::temp_dir().join(format!("raea-steady-unshaded-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("render.log"), "ERROR bevy_render::render_resource::pipeline_cache: failed to process shader error:\n  use of a reserved word `target`\n").unwrap();
+        let e = report(&dir, None).unwrap_err();
+        assert!(e.contains("didn't compile") && e.contains("reserved word"), "{e}");
+        std::fs::write(dir.join("render.log"), "APPLIED  96 frames\n").unwrap();
+        assert!(unshaded(&dir).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
