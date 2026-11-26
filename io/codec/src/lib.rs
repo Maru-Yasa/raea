@@ -1,7 +1,7 @@
 //! raea's media seam: what a decoder and an encoder are (`VideoDecoder`, `VideoEncoder`, `Backend`), frames, audio as
 //! columns, and what every backend shares: YUV conversion, resampling, loudness, and muxing elementary streams in pure
-//! Rust (muxide). The backends are their own crates (raea-io-soft, raea-io-apple, raea-io-av1, raea-io-ffmpeg);
-//! raea-io-media puts them behind one name.
+//! Rust (muxide). The backends are their own crates (raea-io-soft, raea-io-apple, raea-io-av1, raea-io-ffmpeg
+//! including Linux NVENC); raea-io-media puts them behind one name.
 
 pub mod audio;
 pub mod mezz;
@@ -176,12 +176,27 @@ pub struct EncodeStats {
     pub audio_codec: String,
 }
 
+/// Byte size of an NV12 frame (w * h * 3 / 2).
+pub fn nv12_size(w: usize, h: usize) -> usize {
+    w * h * 3 / 2
+}
+
+/// Byte size of a straight RGBA8 frame (w * h * 4).
+pub fn rgba_size(w: usize, h: usize) -> usize {
+    w * h * 4
+}
+
 pub trait VideoEncoder {
     /// One frame, straight RGBA8 at the encoder's size, in display order.
     fn push(&mut self, rgba: &[u8]) -> R<()>;
     /// One frame as NV12 (the luma plane, then interleaved Cb Cr at half size; BT.709 limited range), as the
-    /// engine's GPU readback gives it. The default converts to RGBA and pushes that (only the ffmpeg baseline uses it).
+    /// engine's GPU readback gives it. Encoders set up with `EncodeOpts::nv12` accept it directly; the default
+    /// converts to RGBA and pushes that.
     fn push_nv12(&mut self, nv12: &[u8], w: usize, h: usize) -> R<()> {
+        let need = nv12_size(w, h);
+        if nv12.len() < need {
+            return Err(format!("nv12 frame too short: got {} bytes, need {need} ({w}x{h})", nv12.len()));
+        }
         let (y, u, v) = yuv::nv12_to_i420(nv12, w, h);
         let mut rgba = Vec::new();
         yuv::i420_to_rgba(&y, &u, &v, w, w / 2, w / 2, w, h, &mut rgba);

@@ -104,11 +104,15 @@ static KBPS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 /// bitrate (u32::MAX: none).
 static QUALITY: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
 
+/// `render --codec NAME`: the media backend that encodes (apple, soft, av1, ffmpeg, nvenc).
+static CODEC: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
 fn render_opts() -> raea_runtime_encode::RenderOpts {
     use std::sync::atomic::Ordering::Relaxed;
     let kbps = Some(KBPS.load(Relaxed)).filter(|k| *k > 0);
     let quality = Some(QUALITY.load(Relaxed)).filter(|q| *q != u32::MAX).map(f32::from_bits);
-    raea_runtime_encode::RenderOpts { ten_bit: TEN_BIT.load(Relaxed), kbps, quality, ..Default::default() }
+    let codec = CODEC.lock().unwrap().clone();
+    raea_runtime_encode::RenderOpts { codec, ten_bit: TEN_BIT.load(Relaxed), kbps, quality, ..Default::default() }
 }
 
 /// What one frame of the composition is.

@@ -8,7 +8,7 @@ use std::io::Read;
 use super::*;
 
 /// Frames of `size` at `fps` from stdin, w x h x 4 bytes each, until it closes, into `out`.
-pub fn frames(out: &Path, size: (u32, u32), fps: f64, quality: Option<f32>, audio: Option<&Path>) -> R<Value> {
+pub fn frames(out: &Path, size: (u32, u32), fps: f64, quality: Option<f32>, codec: Option<&str>, audio: Option<&Path>) -> R<Value> {
     let (w, h) = size;
     if w == 0 || h == 0 || w % 2 == 1 || h % 2 == 1 {
         return Err(format!("--size {w}x{h}: an even width and height (H.264 halves the colour planes)"));
@@ -17,7 +17,11 @@ pub fn frames(out: &Path, size: (u32, u32), fps: f64, quality: Option<f32>, audi
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }
     let kbps = ((w as f64 * h as f64 * fps * 0.1) / 1000.0).clamp(300.0, 20000.0) as u32;
-    let mut enc = backend()?.encoder(out, &EncodeOpts { width: w, height: h, fps, kbps, quality, nv12: false, realtime: false })?;
+    let be = match codec {
+        Some(c) => raea_io_media::backend(c)?,
+        None => encode_backend()?,
+    };
+    let mut enc = be.encoder(out, &EncodeOpts { width: w, height: h, fps, kbps, quality, nv12: false, realtime: false })?;
     let mut buf = vec![0u8; w as usize * h as usize * 4];
     let mut input = std::io::stdin().lock();
     let mut frames = 0usize;

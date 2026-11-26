@@ -60,7 +60,7 @@ the reason in the manifest. A render of a file in a raea project also keeps its 
 ## Usage
 
 ```sh
-raea render EDIT.tsx -o OUT.mp4|OUT.png|OUT.wav|DIR [--audio OUT.wav] [--frame N | --at A,B] [--composition ID] [--w W] [--h H] [--fps FPS] [--frames N] [--words W.json] [--perception P.json] [--input I.json|inputs.rrl] [--props JSON|P.json] [--scale S] [--hold FRAME[:FRAMES]] [--manifest render.json] [--layers] [--stage WxH] [--10bit] [--aov] [--alpha [--alpha-codec prores|hevc|rle|png]] [--kbps N | --quality draft|high|master|0..1] [--clay] [--despite CHECK WHY]   (also: --lite --comps)
+raea render EDIT.tsx -o OUT.mp4|OUT.png|OUT.wav|DIR [--audio OUT.wav] [--frame N | --at A,B] [--composition ID] [--w W] [--h H] [--fps FPS] [--frames N] [--words W.json] [--perception P.json] [--input I.json|inputs.rrl] [--props JSON|P.json] [--scale S] [--hold FRAME[:FRAMES]] [--manifest render.json] [--layers] [--stage WxH] [--10bit] [--aov] [--alpha [--alpha-codec prores|hevc|rle|png]] [--codec apple|soft|av1|ffmpeg|nvenc] [--kbps N | --quality draft|high|master|0..1] [--clay] [--despite CHECK WHY]   (also: --lite --comps)
 raea render EDIT.tsx --review DIR [--frame N]   (fixed cameras hero, front, right, top, iso, low in colour and clay: DIR/colour.png, clay.png, review.json)
 raea render PAGE.html -o OUT.mp4|OUT.png|DIR [--at A,B] [--alpha]   (an HTML composition)
 raea render --bundle NAME.comp.js -o OUT.png|DIR [--dir DIR] [--frame N]   (a bundle from raea bundle, as render_bundle draws it)
@@ -80,6 +80,7 @@ Headless: it needs nothing running and opens no window. Takes up to 1 argument b
 | `--audio` | `OUT.wav` | With a video `-o`: also write its sound to `OUT.wav`, the same mastered sound the video carries (before AAC), from the same pass. |
 | `--bundle` | `NAME.comp.js` | Render a bundle made by `raea bundle` instead of a TSX file, as `render_bundle` on the iPhone draws it. |
 | `--clay` | – | Draw every standard 3D surface in plain grey, to judge shapes, light and contact without colour. |
+| `--codec` | `apple\|soft\|av1\|ffmpeg\|nvenc` | Override the video encoder backend (`apple` on Apple, `nvenc` when `h264_nvenc` is available on Linux, else `soft`). |
 | `--composition` | `ID` | Which registered `<Composition>` to render when the file holds several; the first one otherwise. |
 | `--comps` | – | Record which components drew each frame in the frame's marker. Used by bakes and the app's live view, rarely by hand. |
 | `--despite` | `CHECK WHY` | Let a check's errors through (`all` for every check), with the reason, which goes into the manifest. Without it, an error the render finds (3D parts clipping) makes it exit 1, after writing its output. A harness that renders many pieces and compares pixels sets `RAEA_DESPITE="CHECK: why"` instead. |

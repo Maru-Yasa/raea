@@ -44,7 +44,7 @@ pub fn encode(srcs: &[(PathBuf, Option<f64>, Option<f64>)], height: Option<u32>,
     if let Some(d) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }
-    let mut enc = be.encoder(out, &EncodeOpts { width: w, height: h, fps, kbps, quality: None, nv12: false, realtime: false })?;
+    let mut enc = encode_backend()?.encoder(out, &EncodeOpts { width: w, height: h, fps, kbps, quality: None, nv12: false, realtime: false })?;
     let mut frames = 0usize;
     let mut lanes: Vec<Audio> = Vec::new();
     let mut any_sound = false;

@@ -23,7 +23,7 @@ pub use render::*;
 pub struct RenderOpts {
     /// the frames, in order (all of them when None)
     pub frames: Option<Vec<i64>>,
-    /// the media backend that encodes (apple, soft, av1, ffmpeg); the platform's when None
+    /// the media backend that encodes (apple, soft, av1, ffmpeg, nvenc); the platform's when None
     pub codec: Option<String>,
     /// the average video bitrate; raea_io_media::default_kbps (from the size and frame rate) when None
     pub kbps: Option<u32>,
@@ -67,6 +67,10 @@ impl RenderOpts {
             self.cuts.clone()
         })
     }
+}
+
+pub(crate) fn encode_codec(ro: &RenderOpts) -> String {
+    ro.codec.clone().unwrap_or_else(raea_io_media::encode_backend)
 }
 
 /// The encoder for a render's video: a whole one's in segments split at `cuts` (raea-runtime-segments), a part's in
