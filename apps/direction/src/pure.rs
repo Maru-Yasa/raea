@@ -135,14 +135,32 @@ fn under(m: &Value, frame: u64, bx: [usize; 4]) -> Vec<String> {
     hit.into_iter().map(|h| h.1).take(3).collect()
 }
 
+fn samples_for(manifest: &Value) -> Vec<u64> {
+    let length = manifest["length"].as_u64().unwrap_or(0);
+    let remounts: Vec<u64> = manifest["remounts"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect();
+    let Some(frames) = manifest["frames"].as_array().filter(|f| !f.is_empty()) else {
+        return samples(length, &remounts);
+    };
+    let rendered: std::collections::BTreeSet<u64> = frames.iter().filter_map(|f| f["frame"].as_u64()).collect();
+    let (Some(&min_f), Some(&max_f)) = (rendered.first(), rendered.last()) else {
+        return samples(length, &remounts);
+    };
+    if min_f > 0 {
+        return Vec::new();
+    }
+    let end = (max_f + 1).min(length);
+    samples(end, &remounts).into_iter().filter(|f| rendered.contains(f)).collect()
+}
+
 /// SG9 on a finished render: its findings, none when it isn't a video with 3D in it of more than MIN_FRAMES.
 pub fn check(args: &[String], out: &Path, manifest: &Value) -> Vec<Finding> {
     let (Some(file), true) = (args.get(1), manifest["has3d"].as_bool() == Some(true)) else { return Vec::new() };
-    if std::env::var("RAEA_FRAME_PURE").as_deref() == Ok("0") || args.iter().any(|a| a == "--frame" || a == "--at") {
+    if std::env::var("RAEA_FRAME_PURE").as_deref() == Ok("0")
+        || args.iter().any(|a| a == "--frame" || a == "--at" || a == "--from" || a == "--to" || a.starts_with("--from=") || a.starts_with("--to="))
+    {
         return Vec::new();
     }
-    let remounts: Vec<u64> = manifest["remounts"].as_array().into_iter().flatten().filter_map(Value::as_u64).collect();
-    let at = samples(manifest["length"].as_u64().unwrap_or(0), &remounts);
+    let at = samples_for(manifest);
     let fps = manifest["fps"].as_f64().unwrap_or(30.0);
     if at.is_empty() {
         return Vec::new();
@@ -239,5 +257,17 @@ mod tests {
         let m = serde_json::json!({"parts": [{"frame": 600, "parts": [["floor", [0.0, 500.0, 1920.0, 1080.0]], ["counter", [800.0, 300.0, 1000.0, 400.0]], ["sky", [0.0, 0.0, 1920.0, 200.0]]]}]});
         assert_eq!(under(&m, 600, [850, 350, 1000, 520]), ["counter", "floor"]);
         assert!(under(&m, 300, [850, 350, 1000, 520]).is_empty());
+    }
+
+    #[test]
+    fn range_renders_skip_check_and_clamp_samples() {
+        let m = serde_json::json!({"has3d": true, "length": 900, "fps": 30.0, "remounts": [100, 450], "frames": (0..300).map(|f| serde_json::json!({"frame": f})).collect::<Vec<_>>()});
+        assert_eq!(samples_for(&m), vec![101, 299]);
+        let offset = serde_json::json!({"has3d": true, "length": 900, "fps": 30.0, "frames": (300..600).map(|f| serde_json::json!({"frame": f})).collect::<Vec<_>>()});
+        assert!(samples_for(&offset).is_empty());
+        let args: Vec<String> = ["render", "nonexistent.tsx", "--from", "0", "--to", "299"].iter().map(|s| s.to_string()).collect();
+        assert!(check(&args, Path::new("chunk.mp4"), &serde_json::json!({"has3d": true, "length": 900, "fps": 30.0})).is_empty());
+        let to_only: Vec<String> = ["render", "nonexistent.tsx", "--to", "299"].iter().map(|s| s.to_string()).collect();
+        assert!(check(&to_only, Path::new("chunk.mp4"), &serde_json::json!({"has3d": true, "length": 900, "fps": 30.0})).is_empty());
     }
 }
