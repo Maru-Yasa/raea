@@ -206,7 +206,7 @@ pub fn render_bundle(js: &Path, dir: &Path, out: &Path, wanted: Option<Vec<i64>>
     // game took 24 GB before its first frame); RAEA_3D=live or =program chooses
     let game = how == "live" || (how != "program" && how != "files" && is_game(js));
     if game && raea_runtime_view::gpuview::paint_device().is_some() {
-        let video = wanted.is_none() && matches!(ext.as_str(), "mp4" | "mov" | "txt");
+        let video = is_fed_video(&ext, &how, true);
         return render_bundle_with(js, dir, out, wanted, video, None, true);
     }
     if stills && how != "files" {
@@ -224,7 +224,7 @@ pub fn render_bundle(js: &Path, dir: &Path, out: &Path, wanted: Option<Vec<i64>>
     }
     // a video: fed, its pages handed to the encoder on the GPU (B1d), until a frame holds 3D, which starts it again
     // with its 3D drawn live under each page
-    let video = wanted.is_none() && matches!(ext.as_str(), "mp4" | "mov" | "txt") && how != "files" && raea_runtime_view::gpuview::paint_device().is_some();
+    let video = is_fed_video(&ext, &how, raea_runtime_view::gpuview::paint_device().is_some());
     // a bundle that can show 3D (it holds data-3d, the test live play opens its 3D engine on: runtime/live open.rs)
     // starts with its 3D live; started as 2D, it threw its first frames away at the first 3D one and started again,
     // ~300 ms of a warm 150-frame 3D render (11-16). RAEA_3D_FIRST=1 until checked against the probe's frames
@@ -237,19 +237,21 @@ pub fn render_bundle(js: &Path, dir: &Path, out: &Path, wanted: Option<Vec<i64>>
     BEVY_3D_PROBE.store(false, std::sync::atomic::Ordering::Relaxed);
     if video && r.as_ref().err().is_some_and(|e| e.contains(FED_3D)) {
         raea_runtime_react::startup_mark("a 3D frame met: the render starts again with its 3D");
+        raea_sys_layers::reset();
         // RAEA_3D=program makes its rows first
         if how != "program" {
             return live_3d(js, dir, out, wanted);
         }
-        let scene = scene_program_checked(js, dir, range_upto(range), None)?;
+        let upto = wanted.as_ref().and_then(|w| w.iter().max()).map(|f| f + 1).unwrap_or_else(|| range_upto(range));
+        let scene = scene_program_checked(js, dir, upto, None)?;
         return render_bundle_with(js, dir, out, wanted, scene.is_some(), scene, false);
     }
     r
 }
 
-fn range_upto(range: Option<(Option<i64>, Option<i64>)>) -> i64 {
-    range.and_then(|(_, to)| to).map_or(0, |t| t + 1)
-}
+pub(crate) fn is_fed_video(ext: &str, how: &str, has_paint_device: bool) -> bool { matches!(ext, "mp4" | "mov" | "m4v" | "txt") && how != "files" && has_paint_device }
+
+pub(crate) fn range_upto(range: Option<(Option<i64>, Option<i64>)>) -> i64 { range.and_then(|(_, to)| to).map_or(0, |t| t + 1) }
 
 /// A video fed with its 3D made live as each frame steps, React once a frame (#26, #38), each frame's scene kept for the
 /// clipping check at its end.
@@ -266,9 +268,7 @@ pub(crate) static BEVY_3D_PROBE: std::sync::atomic::AtomicBool = std::sync::atom
 pub(crate) static LIVE_CLIPS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// A game's bundle: it steps state with useGameState (bundles aren't minified, and what isn't used is left out).
-pub(crate) fn is_game(js: &Path) -> bool {
-    std::fs::read_to_string(js).is_ok_and(|t| t.contains("useGameState("))
-}
+pub(crate) fn is_game(js: &Path) -> bool { std::fs::read_to_string(js).is_ok_and(|t| t.contains("useGameState(")) }
 
 pub(crate) fn render_bundle_with(js: &Path, dir: &Path, out: &Path, wanted: Option<Vec<i64>>, fed: bool, scene: Option<raea_core_program::ir::Program>, live3d: bool) -> R<String> {
     edit_dir(dir);
@@ -313,9 +313,7 @@ pub(crate) fn render_bundle_with(js: &Path, dir: &Path, out: &Path, wanted: Opti
             cx.scene3d = Some(aov_on(raea_render::engine::Engine::new_live(&p, &raea_render::inserted_of(&p), dir)?));
             raea_runtime_react::startup_mark("the 3D's engine open");
         }
-        if live3d {
-            cx.live3d = Some(LiveScene::default());
-        }
+        if live3d { cx.live3d = Some(LiveScene::default()); }
         return render_fed(&mut app, js, w, h, fps, total, &mut cx, out, &work, &wanted, &mut page);
     }
     if scene.is_some() || live3d {
@@ -329,9 +327,7 @@ pub(crate) fn render_bundle_with(js: &Path, dir: &Path, out: &Path, wanted: Opti
             None => cx.live3d = Some(LiveScene::default()),
         }
         let folder = out_ext(out).is_empty();
-        if folder {
-            std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
-        }
+        if folder { std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?; }
         // each still's scene, for the end checks once the page is known (made live or from rows alike)
         let mut kept: Vec<(i64, Frame)> = Vec::new();
         for (i, &f) in wanted.iter().enumerate() {
@@ -365,11 +361,7 @@ pub(crate) fn render_bundle_with(js: &Path, dir: &Path, out: &Path, wanted: Opti
         drop(FED_CLIPPING.lock().unwrap().take());
         let clipping = scene::told_taking(&mut kept, cx.manifest.as_deref(), w, h, fps);
         write_manifest(&mut cx, (w, h, fps, total), clipping, |_| json!([]))?;
-        return Ok(if folder {
-            format!("APPLIED  {} frames rendered to {} (bevy_ui, the page over its 3D)", wanted.len(), out.display())
-        } else {
-            format!("APPLIED  frame {} rendered to {} (bevy_ui, the page over its 3D)", wanted.last().copied().unwrap_or(0), out.display())
-        });
+        return Ok(if folder { format!("APPLIED  {} frames rendered to {} (bevy_ui, the page over its 3D)", wanted.len(), out.display()) } else { format!("APPLIED  frame {} rendered to {} (bevy_ui, the page over its 3D)", wanted.last().copied().unwrap_or(0), out.display()) });
     }
     let mut frames = Vec::new();
     let mut tones: Vec<raea_sys_mix::ToneCue> = Vec::new();
@@ -433,10 +425,7 @@ pub(crate) fn render_bundle_with(js: &Path, dir: &Path, out: &Path, wanted: Opti
 }
 
 /// An engine for the scene path, drawing the guide data when `--aov` asked for it.
-pub(crate) fn aov_on(mut e: raea_render::engine::Engine) -> raea_render::engine::Engine {
-    if AOV.load(std::sync::atomic::Ordering::Relaxed) { e.want_aov(); }
-    e
-}
+pub(crate) fn aov_on(mut e: raea_render::engine::Engine) -> raea_render::engine::Engine { if AOV.load(std::sync::atomic::Ordering::Relaxed) { e.want_aov(); } e }
 
 /// Frame i's guide data (RT1) as mlxdlss run-sequence reads it: DIR/motion/frame-NNNNN.f32 (H x W x 2 float32) and
 /// DIR/depth/frame-NNNNN.f32 (H x W float32), little-endian, rows top to bottom.

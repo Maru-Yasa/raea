@@ -17,20 +17,39 @@ pub fn overlay_rows(world: &mut World) {
         let frame = world.resource::<FrameRows>();
         q.iter(world).filter_map(|(e, base, id)| Some((id.0.clone(), props_2d(base, &*frame.vals(e)?)))).collect()
     };
-    let Some(mut rows) = world.get_non_send_mut::<Rows2d>() else { return };
-    for (id, p) in sets {
-        rows.0.set(&id, p);
+    enum RowsOut {
+        Tex(wgpu::Texture),
+        Rgba(Vec<u8>),
     }
-    if let Err(e) = rows.0.draw(f) {
-        eprintln!("render: frame {f}: the 2D rows: {e}");
-        return;
-    }
-    let rgba = match rows.0.rgba() {
-        Ok(px) => px.to_vec(),
-        Err(e) => {
+    let shared_gpu = world.get_resource::<GpuFrame>().is_some_and(|gf| gf.on)
+        && raea_gpu_device::enabled()
+        && raea_gpu_device::device().is_ok();
+    let out = {
+        let Some(mut rows) = world.get_non_send_mut::<Rows2d>() else { return };
+        for (id, p) in sets {
+            rows.0.set(&id, p);
+        }
+        if let Err(e) = rows.0.draw(f) {
             eprintln!("render: frame {f}: the 2D rows: {e}");
             return;
         }
+        match shared_gpu.then(|| rows.0.texture()).flatten() {
+            Some(tex) => RowsOut::Tex(tex),
+            None => match rows.0.rgba() {
+                Ok(px) => RowsOut::Rgba(px.to_vec()),
+                Err(e) => {
+                    eprintln!("render: frame {f}: the 2D rows: {e}");
+                    return;
+                }
+            },
+        }
+    };
+    let rgba = match out {
+        RowsOut::Tex(tex) => {
+            world.resource_mut::<GpuFrame>().overlay_tex = Some(tex);
+            return;
+        }
+        RowsOut::Rgba(px) => px,
     };
     // the GPU path takes the premultiplied pixels as they are (the composite blends premultiplied)
     if let Some(mut gf) = world.get_resource_mut::<GpuFrame>() {

@@ -18,7 +18,7 @@ pub use file::Recorder;
 pub use hide::{CAPTION, draws_3d, draws_part, hidden_css, hiding_css, layer_selector};
 pub use raster::{Tri, raster};
 #[cfg(feature = "page")]
-pub use page::page_ids;
+pub use page::{page_ids, page_mask};
 
 use std::cell::RefCell;
 use std::path::PathBuf;
@@ -104,6 +104,11 @@ pub fn on() -> bool {
 /// The recorder, when on.
 pub fn with<T>(f: impl FnOnce(&mut Recorder) -> T) -> Option<T> {
     ON.with(|r| r.borrow_mut().as_mut().map(f))
+}
+
+/// Clear recorded frames and layers without stopping recording (for probed render restarts).
+pub fn reset() {
+    with(Recorder::clear);
 }
 
 /// NAME.layers written at `fps`, the recorder stopped: the file's name, beside render.json, for its "layers". None when

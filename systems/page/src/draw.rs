@@ -24,7 +24,7 @@ pub static DRAWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::n
 #[derive(Resource, Default)]
 pub struct Vello {
     pub renderer: Option<bevy::platform::cell::SyncCell<vello::Renderer>>,
-    pub scratch: HashMap<AssetId<Image>, (wgpu::Texture, UVec2)>,
+    pub scratch: HashMap<AssetId<Image>, (wgpu::Texture, wgpu::TextureView, wgpu::BindGroup, UVec2)>,
     pub premul: Option<Premul>,
     /// the filter passes (filters.rs) and the textures they work in
     pub passes: Option<raea_sys_filters::Passes>,
@@ -84,7 +84,7 @@ pub fn draw(mut scenes: ResMut<Scenes>, mut vello: ResMut<Vello>, device: Res<Re
     let premul = premul.get_or_insert_with(|| Premul::new(device));
     // the host's 3D views: each image's texture drawn in place of its placeholder (it changes each frame); a
     // premultiplied one's straight copy, made first
-    let mut straighten = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("raea-page views made straight") });
+    let mut straighten: Option<wgpu::CommandEncoder> = None;
     straightened.retain(|id, _| image_views.iter().any(|v| v.2 && v.1.id() == *id));
     // the premultiplied texture made straight into `out` (its whole size, so a box of it is cut as from the texture)
     let unpremul = |encoder: &mut wgpu::CommandEncoder, pipeline: &wgpu::RenderPipeline, src: &wgpu::TextureView, out: &wgpu::Texture| {
@@ -113,7 +113,8 @@ pub fn draw(mut scenes: ResMut<Scenes>, mut vello: ResMut<Vello>, device: Res<Re
         let size = gpu.texture.size();
         let out = straightened.entry(handle.id()).or_insert_with(|| straight_target(device, size));
         sized(out, size);
-        unpremul(&mut straighten, &premul.unpremul, &gpu.texture_view, out);
+        let enc = straighten.get_or_insert_with(|| device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("raea-page views made straight") }));
+        unpremul(enc, &premul.unpremul, &gpu.texture_view, out);
         pending.push((placeholder, Some(Placed { texture: out.clone(), origin: (0, 0), premultiplied: false, opaque: false })));
     }
     // placed textures (`view_at`) that are premultiplied or drawn opaque: their copies so, a placeholder gone with its own
@@ -124,11 +125,14 @@ pub fn draw(mut scenes: ResMut<Scenes>, mut vello: ResMut<Vello>, device: Res<Re
         let size = p.texture.size();
         let out = straight_placed.entry(placeholder.data.id()).or_insert_with(|| straight_target(device, size));
         sized(out, size);
-        unpremul(&mut straighten, if p.opaque { &premul.opaque } else { &premul.unpremul }, &p.texture.create_view(&default()), out);
+        let enc = straighten.get_or_insert_with(|| device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("raea-page views made straight") }));
+        unpremul(enc, if p.opaque { &premul.opaque } else { &premul.unpremul }, &p.texture.create_view(&default()), out);
         p.texture = out.clone();
         (p.premultiplied, p.opaque) = (false, false);
     }
-    queue.submit([straighten.finish()]);
+    if let Some(enc) = straighten {
+        queue.submit([enc.finish()]);
+    }
     // a view's texture changes under the same paint: any view placed this frame draws every page again
     let views = !pending.is_empty();
     let renderer = renderer.get_or_insert_with(|| bevy::platform::cell::SyncCell::new({
@@ -210,12 +214,21 @@ pub fn draw(mut scenes: ResMut<Scenes>, mut vello: ResMut<Vello>, device: Res<Re
             let at = wgpu::TexelCopyTextureInfoBase { texture: out, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All };
             renderer.override_image(&layer.image, Some(at));
         }
-        let (tex, _) = scratch.entry(handle.id()).and_modify(|(t, at)| {
-            if *at != px {
-                *t = storage(device, px);
-                *at = px;
+        let make_scratch = |px| {
+            let tex = storage(device, px);
+            let view = tex.create_view(&default());
+            let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("raea-page premul"),
+                layout: &premul.layout,
+                entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }],
+            });
+            (tex, view, bind, px)
+        };
+        let (tex, _, bind, _) = scratch.entry(handle.id()).and_modify(|entry| {
+            if entry.3 != px {
+                *entry = make_scratch(px);
             }
-        }).or_insert_with(|| (storage(device, px), px));
+        }).or_insert_with(|| make_scratch(px));
         let params = vello::RenderParams { base_color: vello::peniko::Color::TRANSPARENT, width: px.x, height: px.y, antialiasing_method: vello::AaConfig::Area };
         if std::env::var_os("RAEA_VELLO_BUMP_USE").is_some() {
             bump_use("page", scene, px.x, px.y);
@@ -234,7 +247,6 @@ pub fn draw(mut scenes: ResMut<Scenes>, mut vello: ResMut<Vello>, device: Res<Re
             renderer.mark_override_image_dirty(&layer.image);
         }
         let drew = skipped::render(renderer, device, &queue, scene, tex, &params, "a page");
-        let view = tex.create_view(&default());
         for layer in layers {
             renderer.override_image(&layer.image, None);
         }
@@ -245,11 +257,6 @@ pub fn draw(mut scenes: ResMut<Scenes>, mut vello: ResMut<Vello>, device: Res<Re
             error!("raea-page: {err}");
             continue;
         }
-        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("raea-page premul"),
-            layout: &premul.layout,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }],
-        });
         let target = gpu.texture.create_view(&wgpu::TextureViewDescriptor { format: Some(TextureFormat::Rgba8UnormSrgb), ..default() });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("raea-page premul"),
@@ -265,7 +272,7 @@ pub fn draw(mut scenes: ResMut<Scenes>, mut vello: ResMut<Vello>, device: Res<Re
             multiview_mask: None,
         });
         pass.set_pipeline(if straight { &premul.straight } else { &premul.pipeline });
-        pass.set_bind_group(0, &bind, &[]);
+        pass.set_bind_group(0, &*bind, &[]);
         pass.draw(0..3, 0..1);
     }
     queue.submit([encoder.finish()]);

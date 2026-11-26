@@ -47,6 +47,22 @@ pub fn wait_drawn() {
     }
 }
 
+/// Small pool of 4-byte MAP_READ sentinel buffers, keyed by device so repeated draws avoid CreateBuffer churn.
+static POOL: std::sync::Mutex<Vec<(wgpu::Device, wgpu::Buffer)>> = std::sync::Mutex::new(Vec::new());
+
+fn take_buf(device: &wgpu::Device) -> wgpu::Buffer {
+    let mut pool = POOL.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(i) = pool.iter().position(|(d, _)| d == device) {
+        return pool.swap_remove(i).1;
+    }
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("raea-page drawn?"),
+        size: 4,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    })
+}
+
 /// `scene` drawn by Vello into `target` with `params`, its sentinel's read back on its way (`what` names it).
 pub fn render(renderer: &mut vello::Renderer, device: &wgpu::Device, queue: &wgpu::Queue, scene: &vello::Scene, target: &wgpu::Texture, params: &vello::RenderParams, what: &str) -> Result<(), String> {
     let check = std::env::var_os("RAEA_PAGE_DRAWN_CHECK").is_none_or(|v| v != "0");
@@ -70,14 +86,18 @@ pub fn render(renderer: &mut vello::Renderer, device: &wgpu::Device, queue: &wgp
         return Ok(());
     }
     DEVICE.get_or_init(|| device.clone());
-    let buf = device.create_buffer(&wgpu::BufferDescriptor { label: Some("raea-page drawn?"), size: 4, usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ, mapped_at_creation: false });
+    let buf = take_buf(device);
     let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("raea-page drawn?") });
     enc.copy_texture_to_buffer(texel, wgpu::TexelCopyBufferInfo { buffer: &buf, layout }, one);
     *LAST.lock().unwrap_or_else(|e| e.into_inner()) = Some(queue.submit([enc.finish()]));
-    let (read, what, (w, h)) = (buf.clone(), what.to_string(), (params.width, params.height));
+    let (read, pool_dev, what, (w, h)) = (buf.clone(), device.clone(), what.to_string(), (params.width, params.height));
     buf.slice(..).map_async(wgpu::MapMode::Read, move |r| {
         let skipped = r.is_ok() && read.slice(..).get_mapped_range().is_ok_and(|d| d[..4] == SENTINEL);
         read.unmap();
+        let mut pool = POOL.lock().unwrap_or_else(|e| e.into_inner());
+        if pool.len() < 16 {
+            pool.push((pool_dev, read));
+        }
         if skipped {
             if !STAY_FULL.swap(true, Ordering::Relaxed) {
                 vello::low_level::vello_encoding::set_bump_full(true);

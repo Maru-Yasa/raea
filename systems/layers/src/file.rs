@@ -38,6 +38,16 @@ impl Recorder {
         Recorder { path, video, size: (0, 0), layers: Vec::new(), seen: Vec::new(), by_key: HashMap::new(), masks: BTreeMap::new(), three: BTreeMap::new(), src: None }
     }
 
+    /// Drop any recorded frames and layers (when a probed render restarts with 3D).
+    pub fn clear(&mut self) {
+        self.size = (0, 0);
+        self.layers.clear();
+        self.seen.clear();
+        self.by_key.clear();
+        self.masks.clear();
+        self.three.clear();
+    }
+
     /// Layers at the root of a use of the edit's components named after the component (`Badge` for the element
     /// `<Badge />` drew outermost), from the sources in `dir`.
     pub fn named_from(mut self, dir: PathBuf) -> Recorder {
@@ -65,22 +75,30 @@ impl Recorder {
     /// page is recorded at are the file's.
     pub fn frame(&mut self, f: i64, w: u32, h: u32, px: &[u16], layers: &[Layer]) {
         self.size = (w, h);
-        let global: Vec<u16> = std::iter::once(0).chain(layers.iter().map(|l| self.index(l, f))).collect();
+        let global = self.global_map(f, layers);
         let (mw, mh) = (w.div_ceil(SCALE), h.div_ceil(SCALE));
         let at = (0..mh).flat_map(|y| (0..mw).map(move |x| ((y * SCALE + SCALE / 2).min(h - 1), (x * SCALE + SCALE / 2).min(w - 1))));
-        let mask = at.map(|(fy, fx)| match px.get((fy * w + fx) as usize) {
-            Some(&NONE) | None => NONE,
-            Some(v) => global.get(*v as usize).copied().unwrap_or(0),
-        });
+        let mask = at.map(|(fy, fx)| map_page_val(px.get((fy * w + fx) as usize).copied(), &global));
         self.masks.insert(f, runs(mask));
+    }
+
+    /// Quarter-size variant of [`Self::frame`]: `mask` already sampled at `(4x + 2, 4y + 2)` (from `page_mask`).
+    pub fn frame_mask(&mut self, f: i64, w: u32, h: u32, mask: &[u16], layers: &[Layer]) {
+        self.size = (w, h);
+        let global = self.global_map(f, layers);
+        self.masks.insert(f, runs(mask.iter().map(|&v| map_page_val(Some(v), &global))));
     }
 
     /// Frame `f`'s 3D, drawn to a target `w` px wide (the frame its top left): `mask` (its quarter, row-major, as
     /// `raster` gives it) each sample's index into `layers` plus one, 0 for none. It shows where the page painted
     /// nothing.
     pub fn frame_3d(&mut self, f: i64, w: u32, mask: &[u16], layers: &[Layer]) {
-        let global: Vec<u16> = std::iter::once(0).chain(layers.iter().map(|l| self.index(l, f))).collect();
+        let global = self.global_map(f, layers);
         self.three.insert(f, (w.div_ceil(SCALE) as usize, runs(mask.iter().map(|v| global.get(*v as usize).copied().unwrap_or(0)))));
+    }
+
+    fn global_map(&mut self, f: i64, layers: &[Layer]) -> Vec<u16> {
+        std::iter::once(0).chain(layers.iter().map(|l| self.index(l, f))).collect()
     }
 
     /// A layer's value in the file (its place in the table plus one), added at its first frame.
@@ -177,6 +195,13 @@ fn runs(vals: impl Iterator<Item = u16>) -> Vec<(u16, u16)> {
         }
     }
     out
+}
+
+fn map_page_val(v: Option<u16>, global: &[u16]) -> u16 {
+    match v {
+        Some(NONE) | None => NONE,
+        Some(i) => global.get(i as usize).copied().unwrap_or(0),
+    }
 }
 
 fn expand(runs: &[(u16, u16)]) -> Vec<u16> {
