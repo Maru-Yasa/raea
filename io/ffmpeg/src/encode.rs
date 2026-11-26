@@ -12,15 +12,6 @@ pub(crate) enum VideoEnc {
     H264Nvenc,
 }
 
-impl VideoEnc {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Libx264 => "h264 (libx264)",
-            Self::H264Nvenc => "h264 (h264_nvenc)",
-        }
-    }
-}
-
 pub(crate) fn encoder_args(enc: VideoEnc, o: &EncodeOpts) -> Vec<String> {
     let mut args = vec![
         "-v".into(),
@@ -114,6 +105,10 @@ pub(crate) fn spawn_encoder(out: &Path, o: &EncodeOpts, enc: VideoEnc) -> R<Box<
             buf
         })
     });
+    let video_codec = match enc {
+        VideoEnc::Libx264 => "h264 (libx264)",
+        VideoEnc::H264Nvenc => "h264 (h264_nvenc)",
+    };
     Ok(Box::new(Encoder {
         child,
         stderr,
@@ -122,7 +117,7 @@ pub(crate) fn spawn_encoder(out: &Path, o: &EncodeOpts, enc: VideoEnc) -> R<Box<
         width: o.width,
         height: o.height,
         nv12: o.nv12,
-        video_codec: enc.label(),
+        video_codec,
         frames: 0,
     }))
 }

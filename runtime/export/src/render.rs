@@ -210,7 +210,7 @@ pub fn render_bundle(js: &Path, dir: &Path, out: &Path, wanted: Option<Vec<i64>>
         return render_bundle_with(js, dir, out, wanted, video, None, true);
     }
     if stills && how != "files" {
-        let upto = wanted.as_ref().and_then(|w| w.iter().max()).map(|f| f + 1).or_else(|| range.and_then(|(_, to)| to.map(|t| t + 1))).unwrap_or(0);
+        let upto = wanted.as_ref().and_then(|w| w.iter().max()).map(|f| f + 1).unwrap_or_else(|| range_upto(range));
         // a still far into a 3D piece: its 3D made live at the still, as a game's is. The rows made beforehand hold a
         // scene for every frame up to it: raea check --quick's three stills of a 13,175-frame film took 10.4 GB that
         // way and 0.8 GB live, the same pixels as the film's (SG4a)
@@ -241,11 +241,14 @@ pub fn render_bundle(js: &Path, dir: &Path, out: &Path, wanted: Option<Vec<i64>>
         if how != "program" {
             return live_3d(js, dir, out, wanted);
         }
-        let upto = range.and_then(|(_, to)| to.map(|t| t + 1)).unwrap_or(0);
-        let scene = scene_program_checked(js, dir, upto, None)?;
+        let scene = scene_program_checked(js, dir, range_upto(range), None)?;
         return render_bundle_with(js, dir, out, wanted, scene.is_some(), scene, false);
     }
     r
+}
+
+fn range_upto(range: Option<(Option<i64>, Option<i64>)>) -> i64 {
+    range.and_then(|(_, to)| to).map_or(0, |t| t + 1)
 }
 
 /// A video fed with its 3D made live as each frame steps, React once a frame (#26, #38), each frame's scene kept for the

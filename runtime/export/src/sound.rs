@@ -13,7 +13,7 @@ pub(crate) fn core_bounce(frames: &[(i64, Frame)], notes: &[raea_sys_mix::ToneCu
         .iter()
         .enumerate()
         .map(|(i, (_, f))| raea_sys_mix::offline::Cue {
-            sounds: f.sounds.iter().map(|s| raea_sys_mix::Sound { key: s.key.as_str().into(), file: Path::new(&s.src).into(), at: s.at, volume: s.volume as f32, rate: s.rate, fade_in: s.fade_in.unwrap_or(0.0), fade_out: s.fade_out.unwrap_or(0.0), bus: s.bus.as_deref().map(Into::into) }).collect(),
+            sounds: f.sounds.iter().map(core_sound).collect(),
             tone: notes.get(i).cloned().unwrap_or_default(),
         })
         .collect();
@@ -117,7 +117,7 @@ pub(crate) fn core_cues(js: &Path, dir: &Path, need_mix: bool) -> R<Option<(Vec<
         .iter()
         .zip(&notes)
         .map(|((_, f), n)| raea_sys_mix::offline::Cue {
-            sounds: f.sounds.iter().map(|s| raea_sys_mix::Sound { key: s.key.as_str().into(), file: Path::new(&s.src).into(), at: s.at, volume: s.volume as f32, rate: s.rate, fade_in: s.fade_in.unwrap_or(0.0), fade_out: s.fade_out.unwrap_or(0.0), bus: s.bus.as_deref().map(Into::into) }).collect(),
+            sounds: f.sounds.iter().map(core_sound).collect(),
             tone: n.clone(),
         })
         .collect();
