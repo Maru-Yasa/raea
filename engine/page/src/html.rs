@@ -36,9 +36,14 @@ impl HtmlPage {
 
     /// `open` at `size` when given, and served from `root` (its root-absolute URLs resolve there) when given.
     pub fn open_with(file: &Path, fps: f64, fonts: Option<&Path>, size: Option<(u32, u32)>, root: Option<&Path>) -> R<HtmlPage> {
+        Self::open_on(file, fps, fonts, size, root, None)
+    }
+
+    /// As `open_with`, on `render` when given (so GpuView shares its GPU device with the page).
+    pub fn open_on(file: &Path, fps: f64, fonts: Option<&Path>, size: Option<(u32, u32)>, root: Option<&Path>, render: Option<bevy::render::settings::RenderCreation>) -> R<HtmlPage> {
         let Prepared { file, dir, w, h, globals } = html_page::prepare(file, fps, fonts, size, root)?;
         let code = html_page::bundle()?;
-        let mut page = BlitzPage::new_on(w, h, fonts, None)?;
+        let mut page = BlitzPage::new_on(w, h, fonts, render)?;
         let app = page.app();
         // the host's step and layout snapshot (HostStepPlugin's and HostPlugin's systems: the App is already finished)
         app.add_systems(PreUpdate, host::step.in_set(raea_sys_page::PageSystems::Step)).add_systems(PostUpdate, host::layout_out.after(raea_sys_page::paint));
@@ -123,6 +128,16 @@ impl HtmlPage {
     /// The page drawn and read back: RGBA rows at its size.
     pub fn frame(&mut self) -> R<Vec<u8>> {
         self.page.frame()
+    }
+
+    /// The page drawn into its GPU texture without reading back to CPU.
+    pub fn draw(&mut self) {
+        self.page.draw();
+    }
+
+    /// The page's GPU texture (`Rgba8UnormSrgb` with an `Rgba8Unorm` view format), if painted.
+    pub fn texture(&self) -> Option<bevy::render::render_resource::Texture> {
+        self.page.texture()
     }
 
     /// WPT's reftest-wait: updates (the page's timers and animation frames running) until the document's root element

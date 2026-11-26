@@ -147,3 +147,66 @@ fn whats_behind_a_picture_in_picture_is_its_own_holders_alone() {
     assert!(hiding_css("", None, Some(r#"behind:/media/a "b".mp4"#)).unwrap().contains(r#"[data-raea-src="/media/a \"b\".mp4"]"#));
     assert!(!draws_3d(Some("behind:/media/C.mp4")));
 }
+
+#[test]
+fn frame_mask_matches_frame_bit_for_bit() {
+    let (w, h) = (10u32, 6u32);
+    let mut px = vec![file::NONE; (w * h) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            px[(y * w + x) as usize] = if x < 4 { 1 } else if y < 4 { 2 } else { file::NONE };
+        }
+    }
+    let mask: Vec<u16> = (0..h.div_ceil(file::SCALE))
+        .flat_map(|y| (0..w.div_ceil(file::SCALE)).map(move |x| ((y * file::SCALE + file::SCALE / 2).min(h - 1), (x * file::SCALE + file::SCALE / 2).min(w - 1))))
+        .map(|(fy, fx)| px[(fy * w + fx) as usize])
+        .collect();
+    let layers0 = [layer("a", "element"), layer("b", "text")];
+    let layers1 = [layer("b", "text")];
+    let px1: Vec<u16> = px.iter().map(|&v| if v == 2 { 1 } else if v == 1 { 0 } else { file::NONE }).collect();
+    let mask1: Vec<u16> = mask.iter().map(|&v| if v == 2 { 1 } else if v == 1 { 0 } else { file::NONE }).collect();
+    let mut r_full = Recorder::new("x.layers".into(), "x.mp4".into());
+    r_full.frame(0, w, h, &px, &layers0);
+    r_full.frame(1, w, h, &px1, &layers1);
+    r_full.frame(2, w, h, &px1, &layers1);
+    let mut r_mask = Recorder::new("x.layers".into(), "x.mp4".into());
+    r_mask.frame_mask(0, w, h, &mask, &layers0);
+    r_mask.frame_mask(1, w, h, &mask1, &layers1);
+    r_mask.frame_mask(2, w, h, &mask1, &layers1);
+    assert_eq!(r_mask.bytes(30.0), r_full.bytes(30.0));
+}
+
+#[cfg(feature = "page")]
+#[test]
+fn id_scene_finish_quarter_and_cache_match_finish_bit_for_bit() {
+    use anyrender::PaintScene;
+    use vello_cpu::kurbo::{Affine, Rect, Stroke};
+    use vello_cpu::peniko::{BlendMode, Color, Fill};
+    let ids = std::collections::HashMap::new();
+    let paint_rect = |x0: f64, y0: f64, x1: f64, y1: f64, quarter: bool| {
+        let mut s = scene::IdScene::new(16, 12, &ids);
+        s.fill(Fill::NonZero, Affine::IDENTITY, Color::WHITE, None, &Rect::new(x0, y0, x1, y1));
+        s.stroke(&Stroke::new(2.0), Affine::IDENTITY, Color::BLACK, None, &Rect::new(10.0, 2.0, 14.0, 10.0));
+        s.push_layer(Fill::NonZero, BlendMode::default(), 0.5, Affine::IDENTITY, &Rect::new(0.0, 0.0, 8.0, 8.0), None, None);
+        s.draw_box_shadow(Affine::IDENTITY, Rect::new(1.0, 1.0, 4.0, 4.0), Color::WHITE, 0.0, 1.0);
+        s.pop_layer();
+        if quarter { s.finish_quarter() } else { s.finish() }
+    };
+    let full = paint_rect(0.0, 0.0, 7.0, 12.0, false);
+    let full_ref = &full;
+    let sampled: Vec<u16> = (0..3usize)
+        .flat_map(|y| (0..4usize).map(move |x| full_ref[(y * 4 + 2) * 16 + (x * 4 + 2)]))
+        .collect();
+    // Second call with identical geometry hits cache (sampled from full), third hits quarter cache directly.
+    assert_eq!(paint_rect(0.0, 0.0, 7.0, 12.0, true), sampled);
+    assert_eq!(paint_rect(0.0, 0.0, 7.0, 12.0, true), sampled);
+    // Different geometry invalidates cache and matches fresh full render.
+    let changed_q = paint_rect(8.0, 0.0, 16.0, 12.0, true);
+    let changed_full = paint_rect(8.0, 0.0, 16.0, 12.0, false);
+    let changed_ref = &changed_full;
+    let changed_sampled: Vec<u16> = (0..3usize)
+        .flat_map(|y| (0..4usize).map(move |x| changed_ref[(y * 4 + 2) * 16 + (x * 4 + 2)]))
+        .collect();
+    assert_eq!(changed_q, changed_sampled);
+    assert_ne!(changed_q, sampled);
+}

@@ -26,11 +26,11 @@ impl GpuView {
         if let Some(b) = fed {
             self.overlays.insert(FED, b);
         } else if !ft.overlay_cached {
-            let px = match self.ahead.take() {
-                Some((af, adg, px)) if af == f && adg == dg => px,
-                _ => self.render_overlay(&st, f)?,
+            let data = match self.ahead.take() {
+                Some((af, adg, data)) if af == f && adg == dg => data,
+                _ => self.render_overlay_data(&st, f)?,
             };
-            let b = self.upload(&px);
+            let b = self.into_overlay_buf(data);
             // a page that changes every frame would keep a full-frame buffer per frame: keep the last few states
             if self.overlays.len() >= 32 {
                 self.overlays.clear();
@@ -44,8 +44,8 @@ impl GpuView {
             let st1 = self.state(f + 1)?.clone();
             let dg1 = Self::overlay_digest(&st1, f + 1);
             if dg1 != dg && !self.overlays.contains_key(&dg1) && self.page_image_rows(&st1, f + 1).is_none() {
-                let px = self.render_overlay(&st1, f + 1)?;
-                self.ahead = Some((f + 1, dg1, px));
+                let data = self.render_overlay_data(&st1, f + 1)?;
+                self.ahead = Some((f + 1, dg1, data));
             }
         }
         ft.overlay = t.elapsed().as_secs_f64() * 1e3;
@@ -214,19 +214,47 @@ impl GpuView {
         Ok(ft)
     }
 
-    /// The overlay at frame f drawn by bevy_ui (premultiplied RGBA, full size).
-    pub(crate) fn render_overlay(&mut self, st: &[Tup], f: i64) -> Result<Vec<u8>, String> {
+    fn into_overlay_buf(&mut self, data: OverlayData) -> wgpu::Buffer {
+        match data {
+            OverlayData::Gpu(b) => b,
+            OverlayData::Cpu(px) => self.upload(&px),
+        }
+    }
+
+    fn tex_to_overlay(conv: Option<&TexToBuf>, gpu: &raea_sys_k::Gpu, w: u32, h: u32, tex: &wgpu::Texture) -> Option<wgpu::Buffer> {
+        let conv = conv?;
+        let buf = gpu.buffer((w * h * 4) as usize, None);
+        let mut enc = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("raea-render overlay") });
+        conv.encode(&gpu.device, &mut enc, tex, &buf, None);
+        gpu.queue.submit([enc.finish()]);
+        Some(buf)
+    }
+
+    /// The overlay at frame f drawn by bevy_ui (on GPU when on the shared device, else premultiplied RGBA).
+    pub(crate) fn render_overlay_data(&mut self, st: &[Tup], f: i64) -> Result<OverlayData, String> {
         if let Some(p) = self.page.as_mut() {
             p.seek(f as f64 / self.prog.fps.max(1.0))?;
-            return p.frame();
+            if self.tex.is_some() {
+                p.draw();
+                if let Some(buf) = p.texture().and_then(|t| Self::tex_to_overlay(self.tex.as_ref(), &self.gpu, self.w, self.h, &t)) {
+                    return Ok(OverlayData::Gpu(buf));
+                }
+            }
+            return p.frame().map(OverlayData::Cpu);
         }
         if let Some(px) = self.page_image(st, f) {
-            return Ok(px);
+            return Ok(OverlayData::Cpu(px));
         }
         self.set_rows(st);
+        if self.tex.is_some() {
+            self.rw.draw(f)?;
+            if let Some(buf) = self.rw.texture().and_then(|t| Self::tex_to_overlay(self.tex.as_ref(), &self.gpu, self.w, self.h, &t)) {
+                return Ok(OverlayData::Gpu(buf));
+            }
+        }
         let mut px = Vec::new();
         self.rw.render(f, &mut px)?;
-        Ok(px)
+        Ok(OverlayData::Cpu(px))
     }
 
     /// A frame whose only 2D row showing is one image over the whole canvas, as raea's pages are: its picture

@@ -217,8 +217,8 @@ impl BlitzPage {
         let scale = self.app.world().get::<Page>(page).map_or(1.0, |p| p.scale as f64);
         let mut docs = self.app.world_mut().non_send_mut::<Docs>();
         let Some(doc) = docs.0.get_mut(&page) else { return };
-        let (px, layers) = raea_sys_layers::page_ids(doc, scale, w, h);
-        raea_sys_layers::with(|r| r.frame((now * fps).round() as i64, w, h, &px, &layers));
+        let (mask, layers) = raea_sys_layers::page_mask(doc, scale, w, h);
+        raea_sys_layers::with(|r| r.frame_mask((now * fps).round() as i64, w, h, &mask, &layers));
     }
 }
 

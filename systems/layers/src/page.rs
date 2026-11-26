@@ -11,6 +11,19 @@ use crate::{Layer, key_of};
 /// layer is drawn, file::NONE where nothing is), and the layers shown or laid out this frame, in document order.
 /// `scale`: page px to frame px.
 pub fn page_ids(doc: &mut BaseDocument, scale: f64, w: u32, h: u32) -> (Vec<u16>, Vec<Layer>) {
+    let (ids, layers) = collect_ids(doc);
+    let mut scene = crate::scene::IdScene::new(w.min(u16::MAX as u32) as u16, h.min(u16::MAX as u32) as u16, &ids);
+    blitz_paint::paint_scene(&mut scene, doc, scale, w, h, 0, 0);
+    (scene.finish(), layers)
+}
+
+/// Quarter-size page mask matching [`page_ids`] sampled at `(4x + 2, 4y + 2)` for [`crate::Recorder::frame_mask`].
+pub fn page_mask(doc: &mut BaseDocument, scale: f64, w: u32, h: u32) -> (Vec<u16>, Vec<Layer>) {
+    let (ids, layers) = collect_ids(doc);
+    (crate::scene::paint_quarter(doc, scale, w, h, &ids), layers)
+}
+
+fn collect_ids(doc: &BaseDocument) -> (HashMap<NodeId, u16>, Vec<Layer>) {
     let mut ids: HashMap<NodeId, u16> = HashMap::new();
     let mut layers: Vec<Layer> = Vec::new();
     // (node, the layer it's in, as an index into `layers` plus one)
@@ -46,7 +59,5 @@ pub fn page_ids(doc: &mut BaseDocument, scale: f64, w: u32, h: u32) -> (Vec<u16>
         }
         stack.extend(node.children.iter().rev().map(|c| (*c, at)));
     }
-    let mut scene = crate::scene::IdScene::new(w.min(u16::MAX as u32) as u16, h.min(u16::MAX as u32) as u16, &ids);
-    blitz_paint::paint_scene(&mut scene, doc, scale, w, h, 0, 0);
-    (scene.finish(), layers)
+    (ids, layers)
 }

@@ -17,6 +17,10 @@ pub fn render(prog: &Program, rows: &[Tup], dir: &Path, out: &Path, ro: &RenderO
     render_with(prog, rows, dir, out, ro, None)
 }
 
+fn is_video_or_hash_out(out: &Path) -> bool {
+    out.extension().is_some_and(|x| matches!(x.to_str(), Some("mp4" | "mov" | "m4v" | "txt")))
+}
+
 /// The direct render with its pages handed over on the GPU: `feed` gives frame f's page (premultiplied RGBA8 packed,
 /// on the paint device, quads::page_buffer) just before f composites, so the pages go from the paint to the encoder
 /// with no file and no readback but the NV12 the encoder takes (gate 5 of no-V8: renders hand pages over as
@@ -169,7 +173,7 @@ pub fn render_with(prog: &Program, rows: &[Tup], dir: &Path, out: &Path, ro: &Re
     // GPU path (the gate checks both against G8's reference), 1.8x the frames a second (a CJ concept: 197 fps vs 107)
     // (the engine's own path when one of its options is asked for: RAEA_READBACK, RAEA_COMPOSITE choose its stages)
     let engine_opts = std::env::var_os("RAEA_READBACK").is_some() || std::env::var_os("RAEA_COMPOSITE").is_some();
-    let to_direct = out.extension().is_some_and(|x| matches!(x.to_str(), Some("mp4" | "mov" | "txt"))) && !ro.ssim && !engine::has_3d(&rows) && !engine_opts;
+    let to_direct = is_video_or_hash_out(out) && !ro.ssim && !engine::has_3d(&rows) && !engine_opts;
     // the CPU render (docs/cpu.feature C1): RAEA_CPU, or a machine with no GPU adapter; the same frames as the GPU's
     let cpu = page.is_none() && (std::env::var_os("RAEA_CPU").is_some() || ((to_direct || std::env::var_os("RAEA_DIRECT").is_some()) && !raea_sys_k::Gpu::available()));
     if cpu {
@@ -241,7 +245,7 @@ pub fn render_with(prog: &Program, rows: &[Tup], dir: &Path, out: &Path, ro: &Re
         // PNGs (#32): OUT.png is one frame (the first unless --at names it), a folder one PNG a frame, each read back
         // as the composite's RGBA
         let still = out.extension().is_some_and(|x| x == "png");
-        let pngs = still || !out.extension().is_some_and(|x| matches!(x.to_str(), Some("mp4" | "mov" | "txt")));
+        let pngs = still || !is_video_or_hash_out(out);
         let list = if still && ro.frames.is_none() { vec![0] } else { list };
         if still && list.len() != 1 {
             return Err(format!("{} is one frame, and {} were asked for: --at one frame, or -o a folder for several", out.display(), list.len()));
@@ -315,13 +319,13 @@ pub fn render_with(prog: &Program, rows: &[Tup], dir: &Path, out: &Path, ro: &Re
     }
     // stills and folders of PNGs come back as RGBA; the encoder (and .txt frame hashes, kept comparable) take NV12.
     // RAEA_READBACK=nv12 brings stills back through NV12 too, as P26's references before 3c7d15cf were taken
-    let video = out.extension().is_some_and(|x| matches!(x.to_str(), Some("mp4" | "mov" | "txt")));
+    let video = is_video_or_hash_out(out);
     let nv12_stills = std::env::var("RAEA_READBACK").is_ok_and(|v| v == "nv12");
     raea_sys_frame::STILLS_RGBA.store(!video && !nv12_stills, std::sync::atomic::Ordering::Relaxed);
     let mut e = engine::Engine::new_shared(&prog, &rows, dir, Some(tl.clone()))?;
     let (w, h) = e.size();
     let t0 = std::time::Instant::now();
-    if out.extension().is_some_and(|x| x == "mp4") {
+    if out.extension().is_some_and(|x| matches!(x.to_str(), Some("mp4" | "mov" | "m4v"))) {
         // the sound: every clip or audio row with a gain, its gain read off the rules frame by frame
         let ta = std::time::Instant::now();
         let mix = match &ro.sound { Some(a) => Some(a.clone()), None => sound_tl(&prog, &tl, &rows, dir)? };

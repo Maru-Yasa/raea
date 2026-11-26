@@ -14,6 +14,7 @@ use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, T
 pub fn target(images: &mut Assets<Image>, w: u32, h: u32) -> Handle<Image> {
     let mut image = Image::new_fill(Extent3d { width: w, height: h, ..default() }, TextureDimension::D2, &[0, 0, 0, 0], TextureFormat::Rgba8UnormSrgb, RenderAssetUsages::default());
     image.texture_descriptor.usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::COPY_SRC | TextureUsages::RENDER_ATTACHMENT;
+    image.texture_descriptor.view_formats = &[TextureFormat::Rgba8Unorm];
     images.add(image)
 }
 
@@ -112,5 +113,14 @@ mod tests {
         assert_eq!((out[0], out[11], out[12], out[23]), (1, 2, 3, 4));
         // 64 px: already aligned
         assert_eq!(unpad(vec![7; 256 * 2], 64, 2).len(), 512);
+    }
+
+    #[test]
+    fn target_exposes_unorm_view_format() {
+        let mut images = Assets::<Image>::default();
+        let h = target(&mut images, 4, 4);
+        let img = images.get(&h).unwrap();
+        assert_eq!(img.texture_descriptor.format, TextureFormat::Rgba8UnormSrgb);
+        assert!(img.texture_descriptor.view_formats.contains(&TextureFormat::Rgba8Unorm));
     }
 }

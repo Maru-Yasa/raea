@@ -225,17 +225,14 @@ pub(crate) fn render_fed(app: &mut App, js: &Path, w: u32, h: u32, fps: f64, tot
     let t0 = std::time::Instant::now();
     let pic = raea_core_program::ir::Program { fps, width: w, height: h, frames: total, ..Default::default() };
     let frame_log = std::env::var_os("RAEA_FRAME_LOG").map(PathBuf::from);
-    if frame_log.is_some() {
-        *FRAME_LOG.lock().unwrap() = Some(FrameLog::default());
-        *raea_runtime_view::gpuview::FRAME_WAITS.lock().unwrap() = Some(Vec::new());
-    }
+    if frame_log.is_some() { *FRAME_LOG.lock().unwrap() = Some(FrameLog::default()); *raea_runtime_view::gpuview::FRAME_WAITS.lock().unwrap() = Some(Vec::new()); }
     // the frame React was last asked for ahead of its turn (the render loop below)
     let mut asked: Option<i64> = None;
     // RAEA_REACT_AHEAD=0: each frame asked for in its turn, as before; and with the Engine's reads, whose frame f - 1
     // is stepped before f is asked for (engine_before)
     let ahead = std::env::var("RAEA_REACT_AHEAD").as_deref() != Ok("0") && !raea_runtime_react::shared::engine_reads();
     let is_whole = wanted.len() as i64 == total && wanted.first() == Some(&0) && wanted.windows(2).all(|w| w[1] == w[0] + 1);
-    let last = wanted.last().copied().unwrap_or(total - 1);
+    let last = wanted.iter().max().copied().unwrap_or(total - 1);
     let cuts = raea_runtime_encode::Cuts::default();
     let r = raea_runtime_encode::render_fed(
         &pic,
@@ -243,23 +240,17 @@ pub(crate) fn render_fed(app: &mut App, js: &Path, w: u32, h: u32, fps: f64, tot
         out,
         &raea_runtime_encode::RenderOpts { cuts: cuts.clone(), frames: (!is_whole).then(|| wanted.to_vec()), ..render_opts() },
         |f| {
-            if Some(&f) == wanted.first() {
-                raea_runtime_react::startup_mark("the fed render's first frame");
-            }
+            if Some(&f) == wanted.first() { raea_runtime_react::startup_mark("the fed render's first frame"); }
             let t_react = std::time::Instant::now();
             engine_before(app, cx, f);
-            if asked != Some(f) {
-                app.world().resource::<ReactOutbox>().send(json!({"t": "event", "name": "raea-frame", "value": f}));
-            }
+            if asked != Some(f) { app.world().resource::<ReactOutbox>().send(json!({"t": "event", "name": "raea-frame", "value": f})); }
             settle_with(app, Some(f), 20.0, &mut |w, q| layout_answer(w, bevy, cx, f, fps, q))?;
             cx.now = f;
             // the next frame asked for now, so React renders it on its own thread while this one's 3D and page are
             // drawn here: its commits wait in the inbox until the next settle applies them, so nothing this frame
             // reads changes (the frames come in order; one asked for out of order is asked for again)
             asked = (f < last && f + 1 < total && ahead).then_some(f + 1);
-            if let Some(g) = asked {
-                app.world().resource::<ReactOutbox>().send(json!({"t": "event", "name": "raea-frame", "value": g}));
-            }
+            if let Some(g) = asked { app.world().resource::<ReactOutbox>().send(json!({"t": "event", "name": "raea-frame", "value": g})); }
             let react_ms = t_react.elapsed().as_secs_f64() * 1e3;
             let t_snap = std::time::Instant::now();
             bevy.at_frame(f, fps);
@@ -269,11 +260,9 @@ pub(crate) fn render_fed(app: &mut App, js: &Path, w: u32, h: u32, fps: f64, tot
             // this frame drawn again, as a still's render does
             if programmed && !restepped && raea_runtime_page::VIEW_BOX.lock().unwrap().is_some() {
                 restepped = true;
-                if let Some(p) = scene_program_checked(js, &dir, total, Some(wanted))? {
-                    cx.scene3d = Some(raea_render::engine::Engine::new_live(&p, &raea_render::inserted_of(&p), &dir)?);
-                    if let Some(m) = cx.manifest.as_mut() {
-                        m.pop();
-                    }
+                if let Some(p) = scene_program_checked(js, &dir, fed_restep_upto(is_whole, total, last), None)? {
+                    cx.scene3d = Some(aov_on(raea_render::engine::Engine::new_live(&p, &raea_render::inserted_of(&p), &dir)?));
+                    cx.manifest.as_mut().map(Vec::pop);
                     fr = bevy_fed(app.world_mut(), bevy, cx, &page, fps)?;
                 }
             }
@@ -296,14 +285,10 @@ pub(crate) fn render_fed(app: &mut App, js: &Path, w: u32, h: u32, fps: f64, tot
                 l.rows.push((f, react_ms, cur));
             }
             let tone = raea_runtime_sound::tone_at(app.world_mut(), f, fps, &dir, media_path, true);
-            if let Some(st) = streamer.borrow().as_ref() {
-                st.push(raea_sys_mix::offline::Cue { sounds: fr.sounds.iter().map(core_sound).collect(), tone: tone.clone() });
-            }
+            if let Some(st) = streamer.borrow().as_ref() { st.push(raea_sys_mix::offline::Cue { sounds: fr.sounds.iter().map(core_sound).collect(), tone: tone.clone() }); }
             notes.borrow_mut().push(tone);
             frames.borrow_mut().push((f, fr));
-            if f as usize % raea_render::engine::mark_every() == 0 {
-                raea_render::engine::mem_mark(&format!("frame {f}"));
-            }
+            if f as usize % raea_render::engine::mark_every() == 0 { raea_render::engine::mem_mark(&format!("frame {f}")); }
             Ok(page.clone())
         },
         || {
@@ -321,12 +306,8 @@ pub(crate) fn render_fed(app: &mut App, js: &Path, w: u32, h: u32, fps: f64, tot
             let bounce_ms = t_bounce.elapsed().as_secs_f64() * 1e3;
             let t_master = std::time::Instant::now();
             let (master, a) = core_master_raw(&raw, frames.borrow().iter().find_map(|(_, f)| f.mix))?;
-            if let Some(p) = std::env::var_os("RAEA_AUDIO_BOUNCE") {
-                raea_sys_mix::write_wav(&a, Path::new(&p))?;
-            }
-            if raea_io_trace::stat("RAEA_MASTER_TRACE") {
-                eprintln!("core bounce (streamed): {:.2} s of sound, master {master:?}; the bounce finished {bounce_ms:.0} ms after the last frame, the master took {:.0} ms", a.duration(), t_master.elapsed().as_secs_f64() * 1e3);
-            }
+            if let Some(p) = std::env::var_os("RAEA_AUDIO_BOUNCE") { raea_sys_mix::write_wav(&a, Path::new(&p))?; }
+            if raea_io_trace::stat("RAEA_MASTER_TRACE") { eprintln!("core bounce (streamed): {:.2} s of sound, master {master:?}; the bounce finished {bounce_ms:.0} ms after the last frame, the master took {:.0} ms", a.duration(), t_master.elapsed().as_secs_f64() * 1e3); }
             Ok(Some(a))
         },
     );
@@ -352,4 +333,24 @@ pub(crate) fn render_fed(app: &mut App, js: &Path, w: u32, h: u32, fps: f64, tot
     write_manifest(cx, (w, h, fps, total), clipping, |cx| heard(&frames.borrow(), &notes.borrow(), cx, fps))?;
     let ms = t0.elapsed().as_secs_f64() * 1e3 / n.max(1) as f64;
     Ok(format!("APPLIED  {n} frames rendered to {} ({ms:.1} ms a frame, pages handed to raea-render on the GPU)", out.display()))
+}
+
+pub(crate) fn fed_restep_upto(is_whole: bool, total: i64, last: i64) -> i64 { if is_whole { total } else { last + 1 } }
+
+#[cfg(test)]
+mod tests {
+    use super::fed_restep_upto;
+    use crate::render::{is_fed_video, out_ext, range_upto};
+    use std::path::Path;
+    #[test]
+    fn gpu_fed_routing_covers_video_extensions_and_range_bounds() {
+        for ext in ["mp4", "mov", "m4v", "txt"] {
+            assert!(is_fed_video(ext, "", true) && is_fed_video(ext, "program", true), "{ext}");
+            assert!(!is_fed_video(ext, "files", true) && !is_fed_video(ext, "", false), "{ext}");
+        }
+        assert!(!is_fed_video("png", "", true));
+        assert_eq!(out_ext(Path::new("clip.m4v")), "m4v");
+        assert_eq!((range_upto(Some((Some(10), Some(20)))), range_upto(Some((Some(10), None)))), (21, 0));
+        assert_eq!((fed_restep_upto(true, 300, 299), fed_restep_upto(false, 300, 45)), (300, 46));
+    }
 }

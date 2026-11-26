@@ -13,6 +13,13 @@ use raea_core_program::ir::{Program, V};
 
 mod composite;
 mod render;
+mod tex;
+pub use tex::TexToBuf;
+
+pub(crate) enum OverlayData {
+    Gpu(wgpu::Buffer),
+    Cpu(Vec<u8>),
+}
 
 type PoolKey = (String, i64);
 
@@ -138,11 +145,12 @@ pub struct GpuView {
     rw: crate::rows2d::Rows,
     overlays: HashMap<u64, wgpu::Buffer>,
     /// the next frame's overlay, painting on the GPU while this frame composites: its frame, digest and paint
-    ahead: Option<(i64, u64, Vec<u8>)>,
+    ahead: Option<(i64, u64, OverlayData)>,
     /// an HTML composition's page (html.rs): the overlay instead of the 2D rows
     page: Option<raea_page::html::HtmlPage>,
     /// the page the caller handed for the next frame, already on this device (render_nv12_fed): the overlay as it is
     fed: Option<wgpu::Buffer>,
+    tex: Option<TexToBuf>,
     comp: raea_sys_k::Compiled,
     _bg: wgpu::Texture,
     bg_view: wgpu::TextureView,
@@ -199,7 +207,9 @@ pub fn paint_device() -> Option<raea_sys_k::Gpu> {
 impl GpuView {
     pub fn new(prog: &Program, rows: &[Tup], dir: &Path) -> Result<GpuView, String> {
         let (w, h) = (prog.width, prog.height);
-        let gpu = paint_device().map_or_else(raea_sys_k::Gpu::new, Ok)?;
+        let paint = paint_device();
+        let shared = paint.is_some();
+        let gpu = paint.map_or_else(raea_sys_k::Gpu::new, Ok)?;
         // the 2D rows, as the engine installs them
         let rows2d: Vec<serde_json::Value> = rows.iter().filter(|t| crate::rows::is_2d(&t.kind)).map(|t| crate::rows::row2d(t, rows).1).collect();
         let rw = crate::rows2d::Rows::new(&rows2d, w, h, prog.frames.max(1), dir)?;
@@ -230,6 +240,7 @@ impl GpuView {
         let out = gpu.buffer((w * h * 4) as usize, None);
         let dummy = gpu.buffer(24, Some(&[0u8; 24]));
         let backend = raea_io_media::backend(&raea_sys_frame::media_backend())?;
+        let tex_to_buf = shared.then(|| TexToBuf::new(&gpu.device, w, h));
         let mut v = GpuView {
             prog: prog.clone(),
             rows: rows.to_vec(),
@@ -246,6 +257,7 @@ impl GpuView {
             ahead: None,
             page: None,
             fed: None,
+            tex: tex_to_buf,
             comp,
             _bg: tex,
             bg_view,

@@ -15,6 +15,7 @@ pub struct GpuFrame {
     pub uploads: Vec<(PoolKey, std::sync::Arc<Vec<u8>>)>,
     pub evict: Vec<PoolKey>,
     pub overlay: Option<std::sync::Arc<Vec<u8>>>,
+    pub overlay_tex: Option<wgpu::Texture>,
     /// kgpu's mask M for the masked clips (their slots' on = 2), when any clip has a mask
     pub mask: Option<std::sync::Arc<Vec<u32>>>,
 }
@@ -53,6 +54,7 @@ pub struct PoolGpu {
     pub dummy: Option<wgpu::Buffer>,
     pub comp: Option<wgpu::ComputePipeline>,
     pub nv12: Option<wgpu::ComputePipeline>,
+    pub tex: Option<raea_runtime_view::gpuview::TexToBuf>,
 }
 
 pub const COMPOSITE_K: &str = include_str!("../../../core/k/kernels/composite.k");
@@ -110,6 +112,7 @@ pub fn gpu_frame_pass(world: &mut World) {
             pool.comp = Some(compile_k(&device, COMPOSITE_K, &["P0", "P1", "P2", "P3", "O", "C", "M"], w, h));
             pool.no_mask = Some(wgpu::util::DeviceExt::create_buffer_init(&device, &wgpu::util::BufferInitDescriptor { label: None, contents: &vec![0u8; (w * h * 4) as usize], usage: wgpu::BufferUsages::STORAGE }));
             pool.nv12 = Some(compile_k(&device, NV12BUF_K, &["F"], w, h));
+            pool.tex = Some(raea_runtime_view::gpuview::TexToBuf::new(&device, w, h));
             pool.overlay = Some(storage(&device, (w * h * 4) as u64));
             pool.frame = Some(storage(&device, (w * h * 4) as u64));
             pool.dummy = Some(storage(&device, 24));
@@ -158,7 +161,9 @@ pub fn gpu_frame_pass(world: &mut World) {
             upload(&mut pool, &b, data, pair);
             pool.bufs.insert(k.clone(), b);
         }
-        if let Some(o) = &frame.overlay {
+        if frame.overlay_tex.is_some() {
+            pool.ts_overlay = pool.ts.is_some();
+        } else if let Some(o) = &frame.overlay {
             let ob = pool.overlay.clone().unwrap();
             pool.ts_overlay = pool.ts.is_some();
             upload(&mut pool, &ob, o, Some(6));
@@ -187,6 +192,10 @@ pub fn gpu_frame_pass(world: &mut World) {
     let (comp, nv12) = (pool.comp.clone().unwrap(), pool.nv12.clone().unwrap());
     let (fbuf, obuf) = (pool.frame.as_ref().unwrap(), pool.overlay.as_ref().unwrap());
     let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("raea-render engine") });
+    if let (Some(tex), Some(conv)) = (&frame.overlay_tex, &pool.tex) {
+        let ts = pool.ts.as_ref().map(|(q, _, _)| (q, 6, 7));
+        conv.encode(&device, &mut enc, tex, obuf, ts);
+    }
     {
         let (sh, gx, gy) = shape(&device, w * h);
         let mut e: Vec<wgpu::BindGroupEntry> = planes.iter().enumerate().map(|(k, b)| wgpu::BindGroupEntry { binding: k as u32, resource: b.as_entire_binding() }).collect();
@@ -259,6 +268,7 @@ pub fn clips_gpu(
     gf.uploads.clear();
     gf.evict.clear();
     gf.overlay = None;
+    gf.overlay_tex = None;
     gf.slots.clear();
     gf.mask = None;
     let mut masks: Vec<Option<String>> = Vec::new();

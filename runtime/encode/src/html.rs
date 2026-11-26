@@ -45,7 +45,8 @@ fn local(dir: &Path, src: &str) -> Result<String, String> {
 /// paints one (CSS Backgrounds 3, the canvas background: the root's or body's background covers it when set).
 pub fn lower(path: &Path) -> Result<Lowered, String> {
     let fps = fps_of(path);
-    let page = HtmlPage::open(path, fps, Some(&raea_io_home::home().join("core/fonts")))?;
+    let render = raea_gpu_device::enabled().then(raea_runtime_view::render_creation);
+    let page = HtmlPage::open_on(path, fps, Some(&raea_io_home::home().join("core/fonts")), None, None, render)?;
     let dir = if path.is_dir() { path.to_path_buf() } else { path.parent().map(Path::to_path_buf).unwrap_or_default() };
     let duration = page.probe.duration;
     if duration <= 0.0 {
