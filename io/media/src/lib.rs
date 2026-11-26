@@ -4,6 +4,7 @@
 //! elementary streams; muxing is pure Rust (muxide) everywhere.
 //!
 //!   ffmpeg  the ffmpeg CLI (the baseline)
+//!   nvenc   Linux NVIDIA hardware: H.264 NVENC via ffmpeg
 //!   soft    portable software: openh264 (H.264, the h264 half), re_mp4 (demux), muxide (mux), Symphonia (audio), Opus (soft-audio)
 //!   apple   platform hardware on Apple: AVFoundation / VideoToolbox (decode HEVC and H.264, encode H.264/HEVC + AAC)
 //!   av1     royalty-free AV1: dav1d decode, rav1e encode
@@ -51,7 +52,7 @@ pub fn backends() -> Vec<Box<dyn Backend>> {
 
 fn unsigned() -> Vec<Box<dyn Backend>> {
     #[allow(unused_mut)] // with no backend features, nothing is pushed
-    let mut v: Vec<Box<dyn Backend>> = vec![Box::new(ffmpeg::Ffmpeg)];
+    let mut v: Vec<Box<dyn Backend>> = vec![Box::new(ffmpeg::Ffmpeg), Box::new(ffmpeg::Nvenc)];
     #[cfg(feature = "soft-audio")]
     v.push(Box::new(soft::Soft));
     #[cfg(all(feature = "apple", target_vendor = "apple"))]
@@ -59,6 +60,24 @@ fn unsigned() -> Vec<Box<dyn Backend>> {
     #[cfg(feature = "av1")]
     v.push(Box::new(av1::Av1));
     v
+}
+
+/// The default backend for video encoding: `RAEA_MEDIA` if set, `"apple"` on Apple, `"nvenc"` on Linux when
+/// `h264_nvenc` probes successfully (`RAEA_NVENC=0` disables), else `"soft"`. Decoding keeps `"soft"` on Linux for
+/// fast in-process mezzanine reads.
+pub fn encode_backend() -> String {
+    if let Ok(m) = std::env::var("RAEA_MEDIA")
+        && !m.is_empty()
+    {
+        return m;
+    }
+    if cfg!(target_vendor = "apple") {
+        return "apple".into();
+    }
+    if ffmpeg::nvenc_available() {
+        return "nvenc".into();
+    }
+    "soft".into()
 }
 
 /// The backend named, not wrapped by the signer: for an encoder whose parts are signed as one once they're put
@@ -89,5 +108,22 @@ pub fn preferred() -> Vec<Box<dyn Backend>> {
 /// The backend named, wrapped by an installed signer as backends() wraps each.
 pub fn backend(name: &str) -> R<Box<dyn Backend>> {
     backend_unsigned(name).map(sign::wrap)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nvenc_backend_is_registered() {
+        assert_eq!(backend("nvenc").expect("nvenc backend registered").name(), "nvenc");
+        assert!(backend("no-such-codec").is_err());
+    }
+
+    #[test]
+    fn encode_backend_returns_known_backend() {
+        let name = encode_backend();
+        assert!(matches!(name.as_str(), "apple" | "nvenc" | "soft" | "ffmpeg" | "av1"), "unexpected default encode backend: {name}");
+    }
 }
 

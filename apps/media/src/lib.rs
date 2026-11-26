@@ -15,7 +15,7 @@
 //!   raea media lod MODEL.glb [--level 1] [--texture 1024] -o OUT.glb   a model at a lower level of detail (triangles halved a level)
 //!   raea media trim FILE --from S --to S -o OUT.mp4         a stretch, frame-exact (re-encoded)
 //!   raea media concat A B ... -o OUT.mp4                    one after another (same aspect)
-//!   raea media encode --size WxH [--fps 60] [--quality Q] [--audio FILE] -o OUT.mp4   raw RGBA frames on stdin, signed
+//!   raea media encode --size WxH [--fps 60] [--quality Q] [--codec NAME] [--audio FILE] -o OUT.mp4   raw RGBA frames on stdin, signed
 //!
 //! `raea ffmpeg ...` and `raea ffprobe ...` read the command lines models write by reflex and run them as these verbs; what
 //! they can't read is refused with the verb or edit that does it. No ffmpeg binary is involved.
@@ -53,6 +53,10 @@ type R<T> = Result<T, String>;
 
 pub fn backend() -> R<Box<dyn Backend>> {
     raea_io_media::backend(&raea_sys_frame::media_backend())
+}
+
+pub fn encode_backend() -> R<Box<dyn Backend>> {
+    raea_io_media::backend(&raea_io_media::encode_backend())
 }
 
 fn soft() -> R<Box<dyn Backend>> {
@@ -220,7 +224,7 @@ fn run(verb: &str, pos: &[String], fl: &BTreeMap<String, String>) -> R<Option<Va
         "encode" => {
             let size = fl.get("size").and_then(|s| s.split_once('x')).and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))).ok_or("raea media encode --size WxH -o OUT.mp4 (raw RGBA frames on stdin)")?;
             let quality = fl.get("quality").map(|q| raea_io_media::parse_quality(q)).transpose()?;
-            frames::frames(&out()?, size, num(fl, "fps")?.unwrap_or(60.0), quality, fl.get("audio").map(Path::new)).map(Some)
+            frames::frames(&out()?, size, num(fl, "fps")?.unwrap_or(60.0), quality, fl.get("codec").map(String::as_str), fl.get("audio").map(Path::new)).map(Some)
         }
         "help" => {
             println!("{}", include_str!("lib.rs").lines().take_while(|l| l.starts_with("//!")).map(|l| l.trim_start_matches("//!").strip_prefix(' ').unwrap_or("")).collect::<Vec<_>>().join("\n"));

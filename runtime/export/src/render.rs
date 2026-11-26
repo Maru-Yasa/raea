@@ -81,6 +81,11 @@ pub fn render(args: &[String]) -> R<String> {
     KBPS.store(kbps.unwrap_or(0), std::sync::atomic::Ordering::Relaxed);
     let quality = flag(args, "--quality").map(|q| raea_io_media::parse_quality(&q)).transpose()?;
     QUALITY.store(quality.map(f32::to_bits).unwrap_or(u32::MAX), std::sync::atomic::Ordering::Relaxed);
+    let codec = flag(args, "--codec");
+    if let Some(c) = codec.as_deref() {
+        raea_io_media::backend(c)?;
+    }
+    *CODEC.lock().unwrap() = codec;
     // --stage WxH: only a responsive composition takes it (as play: a fixed one keeps its own size, scaled to fit)
     *STAGE.lock().unwrap() = match flag(args, "--stage") {
         Some(v) => {
