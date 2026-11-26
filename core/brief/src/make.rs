@@ -64,7 +64,7 @@ pub enum Source {
     Reference,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(untagged)]
 #[ts(rename = "MakeDialValue")]
 pub enum DialValue {
@@ -72,7 +72,20 @@ pub enum DialValue {
     Text(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+impl<'de> Deserialize<'de> for DialValue {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        match serde_json::Value::deserialize(d)? {
+            serde_json::Value::Number(n) => n
+                .as_f64()
+                .map(DialValue::Number)
+                .ok_or_else(|| serde::de::Error::custom("dial number out of f64 range")),
+            serde_json::Value::String(s) => Ok(DialValue::Text(s)),
+            other => Err(serde::de::Error::custom(format!("expected number or string for dial value, got {other}"))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[serde(untagged)]
 #[ts(rename = "MakeDial")]
 pub enum Dial {
@@ -87,6 +100,30 @@ pub enum Dial {
         #[ts(optional)]
         means: Option<String>,
     },
+}
+
+impl<'de> Deserialize<'de> for Dial {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Full {
+            value: DialValue,
+            source: Option<Source>,
+            means: Option<String>,
+        }
+        match serde_json::Value::deserialize(d)? {
+            serde_json::Value::Number(n) => n
+                .as_f64()
+                .map(|f| Dial::Bare(DialValue::Number(f)))
+                .ok_or_else(|| serde::de::Error::custom("dial number out of f64 range")),
+            serde_json::Value::String(s) => Ok(Dial::Bare(DialValue::Text(s))),
+            v @ serde_json::Value::Object(_) => {
+                let Full { value, source, means } = Full::deserialize(v).map_err(serde::de::Error::custom)?;
+                Ok(Dial::Full { value, source, means })
+            }
+            other => Err(serde::de::Error::custom(format!("expected a dial value or object, got {other}"))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]

@@ -101,7 +101,7 @@ fn an_older_brief_with_stages_still_reads_and_never_writes_them() {
 #[test]
 fn a_make_plan_reads_and_its_doctor_names_what_it_lacks() {
     let b: Brief = read("brief.ts", r#"{"title": "Flight desk kit", "make": {"kind": "kit",
-        "dials": {"count": 2, "wear": {"value": 0.4, "source": "customer", "means": "scuffed bakelite"}, "time_of_day": "night"},
+        "dials": {"count": 2, "detail": 0.75, "wear": {"value": 0.4, "source": "customer", "means": "scuffed bakelite"}, "time_of_day": "night"},
         "objects": [{"id": "phone", "label": "Rotary phone", "h": 0.12, "prompt": "a rotary desk phone", "source": "invented"},
                     {"id": "ashtray", "label": "Glass ashtray"}]}}"#).unwrap();
     let m = b.make.as_ref().unwrap();
