@@ -12,6 +12,7 @@ layout. It also renders an HTML composition and a bundle made by [`raea bundle`]
 ```sh
 raea render piece.tsx -o piece.mp4                       # the whole video
 raea render piece.tsx --frame 120 -o frame-120.png       # one frame
+raea render piece.tsx --from 0 --to 299 -o shard-0.mp4   # a frame range (inclusive), for sharded renders
 raea render piece.tsx --at 15,63,144 -o stills/          # some frames, in order: stills/frame-00000.png is frame 15
 raea render piece.tsx --alpha -o frames/                 # every frame as a transparent PNG
 raea render piece.tsx --alpha -o overlay.mov             # a transparent movie (ProRes 4444 on a Mac)
@@ -60,7 +61,7 @@ the reason in the manifest. A render of a file in a raea project also keeps its 
 ## Usage
 
 ```sh
-raea render EDIT.tsx -o OUT.mp4|OUT.png|OUT.wav|DIR [--audio OUT.wav] [--frame N | --at A,B] [--composition ID] [--w W] [--h H] [--fps FPS] [--frames N] [--words W.json] [--perception P.json] [--input I.json|inputs.rrl] [--props JSON|P.json] [--scale S] [--hold FRAME[:FRAMES]] [--manifest render.json] [--layers] [--stage WxH] [--10bit] [--aov] [--alpha [--alpha-codec prores|hevc|rle|png]] [--codec apple|soft|av1|ffmpeg|nvenc] [--kbps N | --quality draft|high|master|0..1] [--clay] [--despite CHECK WHY]   (also: --lite --comps)
+raea render EDIT.tsx -o OUT.mp4|OUT.png|OUT.wav|DIR [--audio OUT.wav] [--frame N | --at A,B] [--from FRAME] [--to FRAME] [--composition ID] [--w W] [--h H] [--fps FPS] [--frames N] [--words W.json] [--perception P.json] [--input I.json|inputs.rrl] [--props JSON|P.json] [--scale S] [--hold FRAME[:FRAMES]] [--manifest render.json] [--layers] [--stage WxH] [--10bit] [--aov] [--alpha [--alpha-codec prores|hevc|rle|png]] [--codec apple|soft|av1|ffmpeg|nvenc] [--kbps N | --quality draft|high|master|0..1] [--clay] [--despite CHECK WHY]   (also: --lite --comps)
 raea render EDIT.tsx --review DIR [--frame N]   (fixed cameras hero, front, right, top, iso, low in colour and clay: DIR/colour.png, clay.png, review.json)
 raea render PAGE.html -o OUT.mp4|OUT.png|DIR [--at A,B] [--alpha]   (an HTML composition)
 raea render --bundle NAME.comp.js -o OUT.png|DIR [--dir DIR] [--frame N]   (a bundle from raea bundle, as render_bundle draws it)
@@ -88,6 +89,7 @@ Headless: it needs nothing running and opens no window. Takes up to 1 argument b
 | `--fps` | `FPS` | Frame rate for a file with no `<Composition>` or `config` (30 by default). |
 | `--frame` | `N` | Render this one frame. |
 | `--frames` | `N` | Length in frames for a file with no `<Composition>` or `config` (60 by default). |
+| `--from` | `FRAME` | First frame number (0-indexed, inclusive) of the slice to render; defaults to `0` when `--to` is given. Cannot be combined with `--frame` or `--at`. |
 | `--h` | `H` | Height in pixels for a file with no `<Composition>` or `config` (1920 by default). |
 | `--hold` | `FRAME` | Draws that frame of a `<Composition>` again and again, 96 times, or as many as `FRAME:FRAMES` says. The scene and the camera hold still, so what changes between the frames is the renderer's own. `raea light steady` measures it. |
 | `--input` | `I.json\|inputs.rrl` | A game's input over time: a JSON timeline, or the step keys of an `inputs.rrl`, so a recorded play-through renders the same every time. |
@@ -101,6 +103,7 @@ Headless: it needs nothing running and opens no window. Takes up to 1 argument b
 | `--review` | `DIR` | Render a 3D scene from six fixed cameras (hero, front, right, top, iso, low), in colour and in clay, to `DIR/colour.png`, `DIR/clay.png` and `DIR/review.json`. |
 | `--scale` | `S` | Draws the composition at S times its size: `0.5` is a half-size draft, `2` a 1080p composition at 4K. Layout stays in the composition's own pixels. Above 0, 8 at most. |
 | `--stage` | `WxH` | Render a responsive composition, one that lays out from `useVideoConfig()`, at this size. A fixed-size composition ignores it and says so. |
+| `--to` | `FRAME` | Last frame number (0-indexed, inclusive) of the slice to render; clamped to the composition's last frame and defaults to the last frame when `--from` is given. Cannot be combined with `--frame` or `--at`. |
 | `--w` | `W` | Width in pixels for a file with no `<Composition>` or `config` (1080 by default). |
 | `--words` | `W.json` | A transcript for the Clock's words (captions and cuts read them), when it isn't the `words.json` beside the composition. |
 | `-o` | `OUT.mp4\|OUT.png\|OUT.wav\|DIR` | Where it goes: an `.mp4` video, one `.png`, the sound alone as a `.wav`, or a folder of frames. |

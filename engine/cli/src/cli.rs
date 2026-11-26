@@ -220,37 +220,25 @@ pub fn run(args: &[String]) -> R<String> {
     if args[0] == "fingerprint" { std::process::exit(raea_app_fingerprint::cli(&args[1..], spec::spec_json)); } // a person's sense of good work as axes over on-device encoders (docs/fingerprint.feature FP3a, FP14a)
     if args[0] == "index" { std::process::exit(raea_sys_index::cli::cli(&args[1..])); } // every picture on a folder or a drive searchable by words, embedded on the Neural Engine (docs/index.feature IX13)
     if args[0] == "traces" { return traces(args); }
-    if args.first().map(String::as_str) == Some("play") {
-        return raea_app_play::play(args);
-    }
+    if args.first().map(String::as_str) == Some("play") { return raea_app_play::play(args); }
     // `export layers EDIT.tsx` (the composition as its layers and layers.json, every editor's export's) and `export xml EDIT.tsx` (an FCP7 XML project for Premiere Pro and DaVinci Resolve): apps/layers
     if let Some(done) = raea_app_layers::cli(args) { return done; }
     // `export capcut EDIT.tsx` (a CapCut draft) and `render ... -o OUT.mov --alpha` (a transparent movie): apps/capcut
     if let Some(done) = raea_app_capcut::cli(args, |a| raea_app_sound::render(a).unwrap_or_else(|| raea_runtime_export::render(a))) { return done; }
     // `export-game EDIT.tsx -o OUT`: the game as a program of its own (game.rs, sdk/react/docs/game-export.md)
-    if args.first().map(String::as_str) == Some("export-game") {
-        return raea_app_game::export(args);
-    }
+    if args.first().map(String::as_str) == Some("export-game") { return raea_app_game::export(args); }
     // `add PKG... [--dev] | remove NAME... | install [--offline]  [--in DIR]`: npm packages for the project (its
     // package.json and raea.lock, a pnpm-style node_modules from one verified store; install scripts never run), which
     // a composition, an app screen or a legacy-app panel imports (io/npm)
-    if matches!(args.first().map(String::as_str), Some("add" | "remove" | "install")) {
-        return raea_io_npm::cli(args);
-    }
+    if matches!(args.first().map(String::as_str), Some("add" | "remove" | "install")) { return raea_io_npm::cli(args); }
     // `mezz [--check] PATH...`: optimized media (raea_io_media::mezz, lightspeed F4): each long-GOP source over 1080p under
     // PATH (a file, or a folder's videos) gets its intra-only ProRes copy, one at a time; --check only says which would
     // `neural mlxdlss DIR -o OUT`: DLSS 5 on a `render --aov` folder, through the user's own MLX-DLSS (RT2)
-    if args.first().map(String::as_str) == Some("neural") {
-        return neural::neural(&args[1..]);
-    }
+    if args.first().map(String::as_str) == Some("neural") { return neural::neural(&args[1..]); }
     // `light check SCENES.json -o DIR`: raealism's bar (docs/realism.feature LT1)
-    if args.first().map(String::as_str) == Some("light") {
-        return light::light(&args[1..]);
-    }
+    if args.first().map(String::as_str) == Some("light") { return light::light(&args[1..]); }
     if args.first().map(String::as_str) == Some("bench") { return raea_denoise_bench::cli(&args[1..]); } // `bench denoise`: each denoiser against its converged truth (DN0)
-    if args.first().map(String::as_str) == Some("mezz") {
-        return mezz(&args[1..]);
-    }
+    if args.first().map(String::as_str) == Some("mezz") { return mezz(&args[1..]); }
     // the sound tools (apps/tools sound.rs): `sao "PROMPT" -o OUT.wav` and `tokensynth "TIMBRE" --notes C3,C4 -o DIR` make
     // through the edit's asset store as its render would; `setup-audio` installs or checks both local models;
     // `sounds [WORDS]` and `sounds get PACK/INSTRUMENT` search and fetch the open sample libraries
@@ -345,24 +333,18 @@ pub fn run(args: &[String]) -> R<String> {
             return Ok(format!("APPLIED  {} test files bundled to {o}", files.len()));
         }
         // the repo root for fixtures (tests read RAEA_ROOT through host.env)
-        if std::env::var_os("RAEA_ROOT").is_none() {
-            unsafe { std::env::set_var("RAEA_ROOT", dunce::canonicalize(&raea_io_home::home()).unwrap_or_default()) };
-        }
+        if std::env::var_os("RAEA_ROOT").is_none() { unsafe { std::env::set_var("RAEA_ROOT", dunce::canonicalize(&raea_io_home::home()).unwrap_or_default()) }; }
         let out = std::env::temp_dir().join(format!("raea-cli-t{}.js", std::process::id()));
         bundle_tests(&files, &out, flag(args, "--filter").as_deref(), &extra)?;
         let secs: f64 = flag(args, "--timeout").and_then(|t| t.parse().ok()).unwrap_or(300.0);
         let (code, _) = run_bundle_to_terminal(&out, secs)?;
         let _ = std::fs::remove_file(&out);
-        if code != 0 {
-            return Err(format!("{} test file(s): some failed", files.len()));
-        }
+        if code != 0 { return Err(format!("{} test file(s): some failed", files.len())); }
         return Ok(String::new());
     }
     if args.first().map(String::as_str) == Some("run") && args.len() >= 2 {
         let code = run_script(args)?;
-        if code != 0 {
-            return Err(format!("{} ended with exit {code}", args[1]));
-        }
+        if code != 0 { return Err(format!("{} ended with exit {code}", args[1])); }
         return Ok(String::new());
     }
     // a composition already bundled (NAME.comp.js, as the iPhone's probe renders it), its media under DIR; --frame N
@@ -376,7 +358,7 @@ pub fn run(args: &[String]) -> R<String> {
     }
     if args.first().map(String::as_str) != Some("render") || args.len() < 2 {
         return Err(format!(
-            "raea render EDIT.tsx -o OUT.mp4|OUT.png|OUT.wav|DIR [--audio OUT.wav] [--frame N | --at A,B] [--composition ID] [--w W] [--h H] [--fps FPS] [--frames N] [--words W.json] [--perception P.json] [--input I.json|inputs.rrl] [--props JSON|P.json] [--scale S] [--hold FRAME[:FRAMES]] [--manifest render.json] [--layers] [--stage WxH] [--10bit] [--aov] [--alpha [--alpha-codec prores|hevc|rle|png]] [--codec apple|soft|av1|ffmpeg|nvenc] [--kbps N | --quality draft|high|master|0..1] [--clay] [--despite CHECK WHY]   (also: --lite --comps)\n       raea render EDIT.tsx --review DIR [--frame N]   (fixed cameras hero, front, right, top, iso, low in colour and clay: DIR/colour.png, clay.png, review.json)\n       raea render PAGE.html -o OUT.mp4|OUT.png|DIR [--at A,B] [--alpha]   (an HTML composition)\n       raea render --bundle NAME.comp.js -o OUT.png|DIR [--dir DIR] [--frame N]   (a bundle from raea bundle, as render_bundle draws it)
+            "raea render EDIT.tsx -o OUT.mp4|OUT.png|OUT.wav|DIR [--audio OUT.wav] [--frame N | --at A,B] [--from FRAME] [--to FRAME] [--composition ID] [--w W] [--h H] [--fps FPS] [--frames N] [--words W.json] [--perception P.json] [--input I.json|inputs.rrl] [--props JSON|P.json] [--scale S] [--hold FRAME[:FRAMES]] [--manifest render.json] [--layers] [--stage WxH] [--10bit] [--aov] [--alpha [--alpha-codec prores|hevc|rle|png]] [--codec apple|soft|av1|ffmpeg|nvenc] [--kbps N | --quality draft|high|master|0..1] [--clay] [--despite CHECK WHY]   (also: --lite --comps)\n       raea render EDIT.tsx --review DIR [--frame N]   (fixed cameras hero, front, right, top, iso, low in colour and clay: DIR/colour.png, clay.png, review.json)\n       raea render PAGE.html -o OUT.mp4|OUT.png|DIR [--at A,B] [--alpha]   (an HTML composition)\n       raea render --bundle NAME.comp.js -o OUT.png|DIR [--dir DIR] [--frame N]   (a bundle from raea bundle, as render_bundle draws it)
        raea media probe|still|sheet|audio|loudness|motion|cuts|freezes|proxy|share|lod|trim|concat FILE ... | ffmpeg ARGS | ffprobe ARGS   (media work, native: media help)
        raea bundle EDIT.tsx --composition-bundle -o OUT.js [--portable DIR]   (a composition for render_bundle, on the Mac or the iPhone)\n       raea add PKG[@RANGE]... [--dev] | remove NAME... | install [--offline]  [--in DIR]   (npm packages for the project: raea.lock, node_modules)\n       {}   (foley, local)\n       {}   (an instrument's notes, local)\n       raea setup-audio [--check] [sao|tokensynth]   (install or check the local audio models)\n       {}   (the song's energy map: beats, sections, builds, drops, stops, hits, cuts per bar; also: --backend NAME)\n       raea sounds [WORDS] | sounds get PACK/INSTRUMENT [--notes ..|--all] [-o DIR]   (open sample libraries for a Sampler)\n       {}   (the clip's camera solved, for <Matchmove>)",
             tools::sound::SAO_USAGE, tools::sound::TOKENSYNTH_USAGE, tools::song::USAGE, motion::track::USAGE

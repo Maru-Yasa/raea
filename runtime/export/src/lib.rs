@@ -13,12 +13,6 @@
 //!
 //! The frames become one raea-render program (the painted pages as image rows, each for the frames it shows; the sound and 3D
 //! as rows, keyed by frame), built as raea-render's IR directly and drawn by raea-render.
-//!
-//!   raea render EDIT.tsx -o OUT.mp4|OUT.png|DIR [--frame N | --at A,B] [--composition ID]
-//!                     [--w 1080 --h 1920 --fps 30 --frames N]   (for a default export without a <Composition>)
-//!                     [--10bit]   (HEVC Main10: decoded colours match the render exactly; H.264 8-bit by default)
-//!                     [--kbps N | --quality draft|high|master|0..1]   (the video's average bitrate, by default from its
-//!                     size and frame rate: 1080p30 about 20 Mbit/s, 4K30 about 80; or VideoToolbox's constant quality)
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -106,6 +100,22 @@ static QUALITY: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new
 
 /// `render --codec NAME`: the media backend that encodes (apple, soft, av1, ffmpeg, nvenc).
 static CODEC: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+/// `render --from A --to B`: inclusive frame range to render (for horizontal sharding).
+static FRAME_RANGE: std::sync::Mutex<Option<(Option<i64>, Option<i64>)>> = std::sync::Mutex::new(None);
+
+pub fn parse_range(args: &[String]) -> R<Option<(Option<i64>, Option<i64>)>> {
+    let one = |name: &str| flag(args, name).map(|f| f.parse::<i64>().ok().filter(|&n| n >= 0).ok_or_else(|| format!("{name} takes a non-negative frame number"))).transpose();
+    let (from, to) = (one("--from")?, one("--to")?);
+    if let (Some(a), Some(b)) = (from, to) && a > b { return Err(format!("--from ({a}) must be <= --to ({b})")); }
+    Ok((from.is_some() || to.is_some()).then_some((from, to)))
+}
+
+pub fn resolve_range(from: Option<i64>, to: Option<i64>, total: i64) -> R<Vec<i64>> {
+    let (a, b) = (from.unwrap_or(0), to.unwrap_or(total - 1).min(total - 1));
+    if total <= 0 || a >= total { return Err(format!("--from ({a}) is past the composition's {total} frames")); }
+    if a > b { return Err(format!("--from ({a}) must be <= --to ({b})")); }
+    Ok((a..=b).collect())
+}
 
 fn render_opts() -> raea_runtime_encode::RenderOpts {
     use std::sync::atomic::Ordering::Relaxed;
@@ -176,15 +186,10 @@ fn generated(props: &mut Map<String, Value>, cx: &mut Ctx) -> bool {
         let store = raea_io_assets::Store::beside(&cx.dir.join("edit.tsx"));
         let (params, seed) = raea_runtime_sound::generated_params(seconds, options.as_deref());
         let got = store.make(&model, &prompt, seed, &params).map(|a| store.path(&a));
-        if let Err(e) = &got {
-            eprintln!("raea: {model} \"{prompt}\" wasn't generated, so it's silent: {e}");
-        }
+        if let Err(e) = &got { eprintln!("raea: {model} \"{prompt}\" wasn't generated, so it's silent: {e}"); }
         cx.made.insert(key.clone(), got.ok());
     }
-    match cx.made.get(&key).cloned().flatten() {
-        Some(file) => { props.insert("src".into(), Value::String(file.display().to_string())); true }
-        None => false,
-    }
+    cx.made.get(&key).cloned().flatten().map(|file| { props.insert("src".into(), Value::String(file.display().to_string())); }).is_some()
 }
 
 /// A sound the frame plays: the element's source at its source time, gain and fades, keyed by its React node.
@@ -215,19 +220,12 @@ fn heard(frames: &[(i64, Frame)], tones: &[raea_sys_mix::ToneCue], cx: &Ctx, fps
     let mut at: HashMap<&str, usize> = HashMap::new();
     for (f, fr) in frames {
         for s in &fr.sounds {
-            if let Some(&k) = at.get(s.key.as_str()) {
-                clips[k]["to"] = json!(f + 1);
-                continue;
-            }
+            if let Some(&k) = at.get(s.key.as_str()) { clips[k]["to"] = json!(f + 1); continue; }
             let mut c = json!({"key": s.key, "from": f, "to": f + 1, "src": s.src, "at": (s.at * 1000.0).round() / 1000.0, "gainDb": ((20.0 * s.volume.max(1e-6).log10()) * 10.0).round() / 10.0});
-            if let Some(b) = &s.bus {
-                c["bus"] = json!(b);
-            }
+            if let Some(b) = &s.bus { c["bus"] = json!(b); }
             // its playback rate and fades, when it has them (the CapCut export's audio clips take them)
             let extras = [("rate", Some(s.rate).filter(|r| *r != 1.0)), ("fadeIn", s.fade_in.filter(|v| *v > 0.0)), ("fadeOut", s.fade_out.filter(|v| *v > 0.0))];
-            for (k, v) in extras.into_iter().filter_map(|(k, v)| v.map(|v| (k, v))) {
-                c[k] = json!(v);
-            }
+            for (k, v) in extras.into_iter().filter_map(|(k, v)| v.map(|v| (k, v))) { c[k] = json!(v); }
             // a generated sound's key is model|prompt|seconds
             if let Some(k) = made.get(&s.src) {
                 let (model, rest) = k.split_once('|').unwrap_or((k, ""));
@@ -240,16 +238,25 @@ fn heard(frames: &[(i64, Frame)], tones: &[raea_sys_mix::ToneCue], cx: &Ctx, fps
     }
     // a note can be listed on more than one frame (three, in the listen fixture); the mixer plays it once, by its key
     let mut seen = std::collections::HashSet::new();
-    let notes: Vec<Value> = tones
-        .iter()
-        .flat_map(|t| &t.evs)
-        .filter(|e| e.get("e").and_then(|v| v.as_str()) == Some("ar") && seen.insert(e.get("k").map(|k| k.to_string())))
-        .map(|e| {
-            let hz = e.get("f").and_then(|f| f.get(0)).and_then(|v| v.as_f64()).unwrap_or(0.0);
-            let midi = if hz > 0.0 { (69.0 + 12.0 * (hz / 440.0).log2()).round() } else { 0.0 };
-            json!({"key": e.get("k"), "node": e.get("n"), "time": e.get("t"), "seconds": e.get("d"), "midi": midi, "velocity": e.get("v")})
-        })
-        .collect();
+    let notes: Vec<Value> = tones.iter().flat_map(|t| &t.evs).filter(|e| e.get("e").and_then(|v| v.as_str()) == Some("ar") && seen.insert(e.get("k").map(|k| k.to_string()))).map(|e| {
+        let hz = e.get("f").and_then(|f| f.get(0)).and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let midi = if hz > 0.0 { (69.0 + 12.0 * (hz / 440.0).log2()).round() } else { 0.0 };
+        json!({"key": e.get("k"), "node": e.get("n"), "time": e.get("t"), "seconds": e.get("d"), "midi": midi, "velocity": e.get("v")})
+    }).collect();
     let lines: Vec<Value> = cx.said.iter().map(|(line, (f, l))| json!({"from": f, "to": l + 1, "line": serde_json::from_str::<Value>(line).unwrap_or(Value::Null)})).collect();
     json!({"fps": fps, "clips": clips, "notes": notes, "lines": lines})
+}
+
+#[cfg(test)]
+mod range_tests {
+    use super::{parse_range, resolve_range};
+    #[test]
+    fn parses_and_resolves_frame_ranges() {
+        let a = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(parse_range(&a(&["render", "e.tsx", "-o", "o.mp4"])).unwrap(), None);
+        for (args, exp) in [(&["--from", "0", "--to", "299"][..], (Some(0), Some(299))), (&["--from", "150"], (Some(150), None)), (&["--to", "45"], (None, Some(45)))] { assert_eq!(parse_range(&a(args)).unwrap(), Some(exp)); }
+        for bad in [&["--from", "20", "--to", "10"][..], &["--from", "-1"], &["--to", "abc"]] { assert!(parse_range(&a(bad)).is_err()); }
+        for (f, t, tot, exp) in [(Some(0), Some(299), 600, 0..=299), (Some(500), Some(999), 600, 500..=599), (Some(580), None, 600, 580..=599), (None, Some(3), 10, 0..=3), (Some(7), Some(7), 10, 7..=7)] { assert_eq!(resolve_range(f, t, tot).unwrap(), exp.collect::<Vec<_>>()); }
+        for (f, t, tot) in [(Some(600), Some(700), 600), (Some(0), Some(10), 0)] { assert!(resolve_range(f, t, tot).is_err()); }
+    }
 }

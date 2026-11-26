@@ -22,12 +22,8 @@ pub(crate) fn out_ext(out: &Path) -> String {
 /// export options set, then rendered, or cloned from the export cache when a whole video was made from the same inputs
 pub fn render(args: &[String]) -> R<String> {
     // --review DIR: the fixed cameras in colour and clay, stitched (review.rs); --clay: every standard surface grey
-    if let Some(d) = flag(args, "--review") {
-        return crate::review::review(args, Path::new(&d));
-    }
-    if args.iter().any(|a| a == "--clay") {
-        raea_runtime_scene3d::clay::CLAY.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
+    if let Some(d) = flag(args, "--review") { return crate::review::review(args, Path::new(&d)); }
+    if args.iter().any(|a| a == "--clay") { raea_runtime_scene3d::clay::CLAY.store(true, std::sync::atomic::Ordering::Relaxed); }
     let tsx = dunce::canonicalize(&PathBuf::from(&args[1])).map_err(|e| format!("{}: {e}", args[1]))?;
     let out = PathBuf::from(flag(args, "-o").ok_or("-o OUT.mp4|OUT.png|DIR")?);
     let dir = tsx.parent().unwrap().to_path_buf();
@@ -54,10 +50,7 @@ pub fn render(args: &[String]) -> R<String> {
     }
     // a layer is a stamped thing (raea_sys_layers), so --layers stamps the source; RAEA_SOURCE_STAMPS=0 keeps them off
     let layers_on = args.iter().any(|a| a == "--layers") || std::env::var_os("RAEA_LAYERS").is_some_and(|v| v == "1");
-    if layers_on && std::env::var_os("RAEA_SOURCE_STAMPS").is_none() {
-        // SAFETY: before any thread of the render starts (the bundler and React's runtime start below)
-        unsafe { std::env::set_var("RAEA_SOURCE_STAMPS", "1") };
-    }
+    if layers_on && std::env::var_os("RAEA_SOURCE_STAMPS").is_none() { unsafe { std::env::set_var("RAEA_SOURCE_STAMPS", "1") }; } // SAFETY: before any render thread starts
     bundle_composition(&tsx, &js, &o, None)?;
     raea_runtime_react::startup_mark("the composition bundled");
     let wanted = match (flag(args, "--frame"), flag(args, "--at")) {
@@ -65,13 +58,13 @@ pub fn render(args: &[String]) -> R<String> {
         (_, Some(at)) => Some(at.split(',').map(|f| f.trim().parse::<i64>().map_err(|_| "--at takes frame numbers".to_string())).collect::<R<_>>()?),
         _ => None,
     };
+    let range = parse_range(args)?;
+    if wanted.is_some() && range.is_some() { return Err("--from/--to cannot be used with --frame or --at".into()); }
     raea_sys_layers::start(layers_on, &out, &tsx);
     *MANIFEST.lock().unwrap() = Some(flag(args, "--manifest").map_or_else(|| raea_sys_layers::manifest_for(&out, &tsx), PathBuf::from));
     TEN_BIT.store(args.iter().any(|a| a == "--10bit"), std::sync::atomic::Ordering::Relaxed);
     AOV.store(args.iter().any(|a| a == "--aov"), std::sync::atomic::Ordering::Relaxed);
-    if AOV.load(std::sync::atomic::Ordering::Relaxed) && !out_ext(&out).is_empty() {
-        return Err("--aov writes frames: -o names a folder (DIR/frame-NNNNN.png, DIR/motion, DIR/depth)".into());
-    }
+    if AOV.load(std::sync::atomic::Ordering::Relaxed) && !out_ext(&out).is_empty() { return Err("--aov writes frames: -o names a folder (DIR/frame-NNNNN.png, DIR/motion, DIR/depth)".into()); }
     let alpha = args.iter().any(|a| a == "--alpha");
     if alpha && !matches!(out_ext(&out).as_str(), "png" | "") {
         return Err(format!("--alpha writes PNGs (OUT.png or a folder) or a transparent movie (OUT.mov, --alpha-codec {}): an .{} holds no alpha", raea_io_alpha::NAMES, out_ext(&out)));
@@ -82,9 +75,7 @@ pub fn render(args: &[String]) -> R<String> {
     let quality = flag(args, "--quality").map(|q| raea_io_media::parse_quality(&q)).transpose()?;
     QUALITY.store(quality.map(f32::to_bits).unwrap_or(u32::MAX), std::sync::atomic::Ordering::Relaxed);
     let codec = flag(args, "--codec");
-    if let Some(c) = codec.as_deref() {
-        raea_io_media::backend(c)?;
-    }
+    if let Some(c) = codec.as_deref() { raea_io_media::backend(c)?; }
     *CODEC.lock().unwrap() = codec;
     // --stage WxH: only a responsive composition takes it (as play: a fixed one keeps its own size, scaled to fit)
     *STAGE.lock().unwrap() = match flag(args, "--stage") {
@@ -100,7 +91,7 @@ pub fn render(args: &[String]) -> R<String> {
         None => None,
     };
     // a whole video made from these same inputs before is the export: cloned from the cache, not rendered again
-    let cache = if wanted.is_none() && !raea_sys_layers::on() { export_cache(&tsx, &js, &out, args) } else { None };
+    let cache = if wanted.is_none() && range.is_none() && !raea_sys_layers::on() { export_cache(&tsx, &js, &out, args) } else { None };
     raea_runtime_react::startup_mark("the export cache looked up");
     let manifest = MANIFEST.lock().unwrap().clone();
     if let Some(c) = &cache {
@@ -116,7 +107,9 @@ pub fn render(args: &[String]) -> R<String> {
             }
         }
     }
+    *FRAME_RANGE.lock().unwrap() = range;
     let said = render_bundle(&js, &dir, &out, wanted);
+    *FRAME_RANGE.lock().unwrap() = None;
     let _ = std::fs::remove_file(&js);
     if let (Some(c), Ok(s)) = (&cache, &said) {
         if c.parent().is_some_and(|d| std::fs::create_dir_all(d).is_ok()) {
@@ -204,8 +197,10 @@ const LIVE_PAST: i64 = 3600;
 pub fn render_bundle(js: &Path, dir: &Path, out: &Path, wanted: Option<Vec<i64>>) -> R<String> {
     // stills of a 3D scene: its engine opened live beside the page (as the fed path opens it), the page laid over each
     // frame's 3D and each <Screen> painted from the page's own picture of it
+    let range = *FRAME_RANGE.lock().unwrap();
     let ext = out_ext(out);
-    let stills = (ext == "png" && wanted.as_ref().is_some_and(|w| w.len() == 1)) || ext.is_empty();
+    let single_range = range.is_some_and(|(a, b)| a.unwrap_or(0) == b.unwrap_or(-1));
+    let stills = (ext == "png" && (wanted.as_ref().is_some_and(|w| w.len() == 1) || single_range)) || ext.is_empty();
     let how = std::env::var_os("RAEA_3D").and_then(|v| v.into_string().ok()).unwrap_or_default();
     // a game: its 3D made frame by frame as it's stepped (rows made beforehand hold every frame's scene: a 10-minute
     // game took 24 GB before its first frame); RAEA_3D=live or =program chooses
@@ -215,7 +210,7 @@ pub fn render_bundle(js: &Path, dir: &Path, out: &Path, wanted: Option<Vec<i64>>
         return render_bundle_with(js, dir, out, wanted, video, None, true);
     }
     if stills && how != "files" {
-        let upto = wanted.as_ref().and_then(|w| w.iter().max()).map_or(0, |f| f + 1);
+        let upto = wanted.as_ref().and_then(|w| w.iter().max()).map(|f| f + 1).or_else(|| range.and_then(|(_, to)| to.map(|t| t + 1))).unwrap_or(0);
         // a still far into a 3D piece: its 3D made live at the still, as a game's is. The rows made beforehand hold a
         // scene for every frame up to it: raea check --quick's three stills of a 13,175-frame film took 10.4 GB that
         // way and 0.8 GB live, the same pixels as the film's (SG4a)
@@ -235,28 +230,29 @@ pub fn render_bundle(js: &Path, dir: &Path, out: &Path, wanted: Option<Vec<i64>>
     // ~300 ms of a warm 150-frame 3D render (11-16). RAEA_3D_FIRST=1 until checked against the probe's frames
     if video && how != "program" && std::env::var("RAEA_3D_FIRST").as_deref() == Ok("1") && std::fs::read_to_string(js).is_ok_and(|t| t.contains("data-3d")) {
         raea_runtime_react::startup_mark("the bundle holds 3D: the render starts with its 3D");
-        return live_3d(js, dir, out);
+        return live_3d(js, dir, out, wanted);
     }
     BEVY_3D_PROBE.store(video, std::sync::atomic::Ordering::Relaxed);
-    let r = render_bundle_with(js, dir, out, wanted, video, None, false);
+    let r = render_bundle_with(js, dir, out, wanted.clone(), video, None, false);
     BEVY_3D_PROBE.store(false, std::sync::atomic::Ordering::Relaxed);
     if video && r.as_ref().err().is_some_and(|e| e.contains(FED_3D)) {
         raea_runtime_react::startup_mark("a 3D frame met: the render starts again with its 3D");
         // RAEA_3D=program makes its rows first
         if how != "program" {
-            return live_3d(js, dir, out);
+            return live_3d(js, dir, out, wanted);
         }
-        let scene = scene_program_checked(js, dir, 0, None)?;
-        return render_bundle_with(js, dir, out, None, scene.is_some(), scene, false);
+        let upto = range.and_then(|(_, to)| to.map(|t| t + 1)).unwrap_or(0);
+        let scene = scene_program_checked(js, dir, upto, None)?;
+        return render_bundle_with(js, dir, out, wanted, scene.is_some(), scene, false);
     }
     r
 }
 
 /// A video fed with its 3D made live as each frame steps, React once a frame (#26, #38), each frame's scene kept for the
 /// clipping check at its end.
-fn live_3d(js: &Path, dir: &Path, out: &Path) -> R<String> {
+fn live_3d(js: &Path, dir: &Path, out: &Path, wanted: Option<Vec<i64>>) -> R<String> {
     LIVE_CLIPS.store(true, std::sync::atomic::Ordering::Relaxed);
-    let r = render_bundle_with(js, dir, out, None, true, None, true);
+    let r = render_bundle_with(js, dir, out, wanted, true, None, true);
     LIVE_CLIPS.store(false, std::sync::atomic::Ordering::Relaxed);
     r
 }
@@ -298,7 +294,14 @@ pub(crate) fn render_bundle_with(js: &Path, dir: &Path, out: &Path, wanted: Opti
     }
     let fps = num(&conf, "fps").unwrap_or(30.0);
     let total = num(&conf, "frames").unwrap_or(60.0) as i64;
-    let wanted = wanted.unwrap_or_else(|| (0..total).collect());
+    let wanted = match (wanted, *FRAME_RANGE.lock().unwrap()) {
+        (Some(w), _) => w,
+        (None, Some((from, to))) => resolve_range(from, to, total)?,
+        (None, None) => (0..total).collect(),
+    };
+    if out_ext(out) == "png" && wanted.len() != 1 {
+        return Err(format!("{} is one frame, and {} were asked for: --frame one frame, or -o a folder for several", out.display(), wanted.len()));
+    }
     raea_gpu_device::check::mem_fits(w, h, None)?;
     let mut page = raea_runtime_page::BevyPage::new(w, h, dir)?;
     let mut cx = Ctx { dir, work: &work, sounds: Vec::new(), scene: Vec::new(), clear: None, marker: None, mix: None, audible: HashMap::new(), brand: page_css(dir, w, js), manifest: MANIFEST.lock().unwrap().as_ref().map(|_| Vec::new()), now: 0, said: Default::default(), made: HashMap::new(), scene3d: None, live3d: None };
@@ -387,28 +390,14 @@ pub(crate) fn render_bundle_with(js: &Path, dir: &Path, out: &Path, wanted: Opti
         frames.push((f, fr));
         let t2 = std::time::Instant::now();
         // the frame before's page, now that this one is on the GPU
-        if frames.len() >= 2 {
-            let k = frames.len() - 2;
-            settle_page(&mut frames, k, w, h, &work)?;
-        }
-        if times {
-            t_react += (t1 - t0).as_secs_f64() * 1e3;
-            t_snap += (t2 - t1).as_secs_f64() * 1e3;
-            t_page += t2.elapsed().as_secs_f64() * 1e3;
-        }
+        if frames.len() >= 2 { let k = frames.len() - 2; settle_page(&mut frames, k, w, h, &work)?; }
+        if times { t_react += (t1 - t0).as_secs_f64() * 1e3; t_snap += (t2 - t1).as_secs_f64() * 1e3; t_page += t2.elapsed().as_secs_f64() * 1e3; }
     }
-    if times {
-        eprintln!("raea times: react {t_react:.0} ms, page recorded and submitted {t_snap:.0} ms, page collected and stored {t_page:.0} ms over {} frames", wanted.len());
-    }
-    if !frames.is_empty() {
-        let k = frames.len() - 1;
-        settle_page(&mut frames, k, w, h, &work)?;
-    }
+    if times { eprintln!("raea times: react {t_react:.0} ms, page recorded and submitted {t_snap:.0} ms, page collected and stored {t_page:.0} ms over {} frames", wanted.len()); }
+    if !frames.is_empty() { let k = frames.len() - 1; settle_page(&mut frames, k, w, h, &work)?; }
     let tw = std::time::Instant::now();
     pages_written()?;
-    if times {
-        eprintln!("raea times: waiting for the page writers {:.0} ms", tw.elapsed().as_secs_f64() * 1e3);
-    }
+    if times { eprintln!("raea times: waiting for the page writers {:.0} ms", tw.elapsed().as_secs_f64() * 1e3); }
     let react_ms = t0.elapsed().as_secs_f64() * 1e3 / wanted.len().max(1) as f64;
     drop(app);
     // 3D parts passing through each other on screen: on stderr, and in the manifest for the legacy app's checks
@@ -426,40 +415,30 @@ pub(crate) fn render_bundle_with(js: &Path, dir: &Path, out: &Path, wanted: Opti
     // a folder of PNGs (no extension) carries no sound either, so a silent one isn't refused
     let pictures = png || ext.is_empty();
     let sound = if !pictures { core_bounce(&frames, &tones, fps, &p, &rows, dir)? } else { None };
-    if !pictures && sound.is_none() && !rows.iter().any(|t| t.kind == "audio") {
-        no_sound_but_declared(js)?;
-    }
+    if !pictures && sound.is_none() && !rows.iter().any(|t| t.kind == "audio") { no_sound_but_declared(js)?; }
     let opts = raea_runtime_encode::RenderOpts { frames: if png { Some(vec![0]) } else { None }, sound, ..render_opts() };
     let tr = std::time::Instant::now();
     raea_runtime_encode::render(&p, &rows, &work, &target, &opts)?;
-    if times {
-        eprintln!("raea times: raea-render's render (pages composited over the clips, encoded) {:.0} ms", tr.elapsed().as_secs_f64() * 1e3);
-    }
+    if times { eprintln!("raea times: raea-render's render (pages composited over the clips, encoded) {:.0} ms", tr.elapsed().as_secs_f64() * 1e3); }
     if png {
         let f = std::fs::read_dir(&target).map_err(|e| e.to_string())?.filter_map(|e| e.ok().map(|e| e.path())).find(|p| p.extension().is_some_and(|x| x == "png")).ok_or("no frame drawn")?;
         std::fs::copy(&f, out).map_err(|e| e.to_string())?;
     }
-    if std::env::var_os("RAEA_KEEP").is_none() {
-        let _ = std::fs::remove_dir_all(&work);
-    }
+    if std::env::var_os("RAEA_KEEP").is_none() { let _ = std::fs::remove_dir_all(&work); }
     drop(page);
     Ok(format!("APPLIED  {} frames rendered to {} ({react_ms:.0} ms a frame in React and bevy_ui)", frames.len(), out.display()))
 }
 
 /// An engine for the scene path, drawing the guide data when `--aov` asked for it.
 pub(crate) fn aov_on(mut e: raea_render::engine::Engine) -> raea_render::engine::Engine {
-    if AOV.load(std::sync::atomic::Ordering::Relaxed) {
-        e.want_aov();
-    }
+    if AOV.load(std::sync::atomic::Ordering::Relaxed) { e.want_aov(); }
     e
 }
 
 /// Frame i's guide data (RT1) as mlxdlss run-sequence reads it: DIR/motion/frame-NNNNN.f32 (H x W x 2 float32) and
 /// DIR/depth/frame-NNNNN.f32 (H x W float32), little-endian, rows top to bottom.
 fn write_aov(out: &Path, i: usize, e: Option<&mut raea_render::engine::Engine>) -> R<()> {
-    if !AOV.load(std::sync::atomic::Ordering::Relaxed) {
-        return Ok(());
-    }
+    if !AOV.load(std::sync::atomic::Ordering::Relaxed) { return Ok(()); }
     let a = e.and_then(|e| e.take_aov()).ok_or_else(|| format!("frame {i}: --aov, but the frame drew no motion vectors or depth (a 3D camera draws them)"))?;
     for (sub, v) in [("motion", &a.motion), ("depth", &a.depth)] {
         let d = out.join(sub);
