@@ -298,7 +298,7 @@ pub(crate) fn render_fed(app: &mut App, js: &Path, w: u32, h: u32, fps: f64, tot
             let st = streamer.borrow_mut().take().ok_or("the sound was asked for twice")?;
             if frames.borrow().iter().all(|(_, f)| f.sounds.is_empty()) && notes.borrow().iter().all(|n| n.is_empty()) {
                 st.discard()?;
-                no_sound_but_declared(js)?;
+                if FRAME_RANGE.lock().unwrap().is_none() { no_sound_but_declared(js)?; }
                 return Ok(None);
             }
             let t_bounce = std::time::Instant::now();

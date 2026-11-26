@@ -258,5 +258,12 @@ mod range_tests {
         for bad in [&["--from", "20", "--to", "10"][..], &["--from", "-1"], &["--to", "abc"]] { assert!(parse_range(&a(bad)).is_err()); }
         for (f, t, tot, exp) in [(Some(0), Some(299), 600, 0..=299), (Some(500), Some(999), 600, 500..=599), (Some(580), None, 600, 580..=599), (None, Some(3), 10, 0..=3), (Some(7), Some(7), 10, 7..=7)] { assert_eq!(resolve_range(f, t, tot).unwrap(), exp.collect::<Vec<_>>()); }
         for (f, t, tot) in [(Some(600), Some(700), 600), (Some(0), Some(10), 0)] { assert!(resolve_range(f, t, tot).is_err()); }
+        let js = std::env::temp_dir().join(format!("raea-range-sound-{}.js", std::process::id()));
+        std::fs::write(&js, r#"(0, import_jsx_runtime.jsx)(Audio, { src: "a.wav" })"#).unwrap();
+        assert!(super::no_sound_but_declared(&js).is_err());
+        *super::FRAME_RANGE.lock().unwrap() = Some((Some(0), Some(299)));
+        assert!(super::FRAME_RANGE.lock().unwrap().is_some());
+        *super::FRAME_RANGE.lock().unwrap() = None;
+        let _ = std::fs::remove_file(&js);
     }
 }

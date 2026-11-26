@@ -410,7 +410,7 @@ pub(crate) fn render_bundle_with(js: &Path, dir: &Path, out: &Path, wanted: Opti
     // a folder of PNGs (no extension) carries no sound either, so a silent one isn't refused
     let pictures = png || ext.is_empty();
     let sound = if !pictures { core_bounce(&frames, &tones, fps, &p, &rows, dir)? } else { None };
-    if !pictures && sound.is_none() && !rows.iter().any(|t| t.kind == "audio") { no_sound_but_declared(js)?; }
+    if !pictures && sound.is_none() && !rows.iter().any(|t| t.kind == "audio") && FRAME_RANGE.lock().unwrap().is_none() { no_sound_but_declared(js)?; }
     let opts = raea_runtime_encode::RenderOpts { frames: if png { Some(vec![0]) } else { None }, sound, ..render_opts() };
     let tr = std::time::Instant::now();
     raea_runtime_encode::render(&p, &rows, &work, &target, &opts)?;
