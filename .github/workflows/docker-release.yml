@@ -1,0 +1,108 @@
+name: docker-release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  docker-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Linux build dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            cmake ninja-build nasm jq \
+            libxkbcommon-dev libxkbcommon-x11-dev libasound2-dev \
+            libfontconfig1-dev libvulkan-dev libudev-dev
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install runtime JS packages
+        run: |
+          for d in sdk/react/js sdk/react/tw; do
+            (cd "$d" && bun install --frozen-lockfile)
+          done
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build raea (linux/amd64 release)
+        run: |
+          feat=$(bash tools/bevy-plugins.sh features sdk/raea/bench/bevy-plugins)
+          [ -n "$feat" ] || { echo "docker-release: no catalog features" >&2; exit 1; }
+          cargo build --release --locked -p raea-cli --bin raea --no-default-features --features "$feat"
+
+      - name: Stage Docker context
+        run: |
+          stage=/tmp/docker-ctx/raea
+          rm -rf /tmp/docker-ctx
+          mkdir -p "$stage/bin" "$stage/share/raea"
+          cp target/release/raea target/release/libraea_bundle.so "$stage/bin/"
+          strip "$stage/bin/raea"
+          strip --strip-unneeded "$stage/bin/libraea_bundle.so"
+
+          pkgs=()
+          for p in $(git show HEAD:sdk/tsconfig.base.json | jq -r '.compilerOptions.paths | to_entries[] | select(.key | test("^@raea/[a-z0-9_]+$")) | .value[0] | ltrimstr("./") | split("/")[0]' | tr -d '\r'); do
+            pkgs+=("sdk/$p/src" "sdk/$p/package.json")
+            git cat-file -e "HEAD:sdk/$p/bevy" 2>/dev/null && pkgs+=("sdk/$p/bevy")
+            git cat-file -e "HEAD:sdk/$p/examples" 2>/dev/null && pkgs+=("sdk/$p/examples")
+            git cat-file -e "HEAD:sdk/$p/python" 2>/dev/null && pkgs+=("sdk/$p/python")
+          done
+          [ ${#pkgs[@]} -gt 0 ] || { echo "docker-release: no @raea packages in sdk/tsconfig.base.json" >&2; exit 1; }
+
+          git archive HEAD \
+            sdk/tsconfig.base.json \
+            sdk/ui/src sdk/ui/package.json sdk/ui/bevy \
+            sdk/raea/src sdk/raea/library sdk/raea/package.json \
+            sdk/react/js/src sdk/react/js/lite sdk/react/js/shims sdk/react/js/package.json sdk/react/js/tsconfig.json \
+            sdk/shell/src \
+            "${pkgs[@]}" \
+            tools/local_setup.py tools/ensure.sh \
+            sdk/guides/craft sdk/guides/fixes \
+            docs/sdk-coverage.md \
+            engine/cli/template/theme.css ':(glob)engine/cli/src/*.ts' \
+            | tar -x -C "$stage/share/raea"
+
+          copy() { mkdir -p "$2" && tar -C "$(dirname "$1")" --exclude .cache -cf - "$(basename "$1")" | tar -C "$2" -xf -; }
+          copy sdk/react/tw/node_modules/tailwindcss "$stage/share/raea/sdk/react/tw/node_modules"
+          copy sdk/react/js/node_modules "$stage/share/raea/sdk/react/js"
+          printf '%s\n' "${GITHUB_SHA::12}" > "$stage/share/raea/VERSION"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: /tmp/docker-ctx
+          file: .github/docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ghcr.io/maru-yasa/raea:latest
+            ghcr.io/maru-yasa/raea:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

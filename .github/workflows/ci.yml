@@ -95,7 +95,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-24.04]
+        os: [ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     steps:
@@ -103,11 +103,7 @@ jobs:
         with:
           lfs: false
       - name: Linux libraries
-        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y cmake ninja-build libasound2-dev libfontconfig1-dev libvulkan-dev libudev-dev nasm
-      - name: macOS tools
-        if: runner.os == 'macOS'
-        run: brew install cmake ninja nasm
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2

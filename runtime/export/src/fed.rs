@@ -214,7 +214,7 @@ pub(crate) fn render_fed(app: &mut App, js: &Path, w: u32, h: u32, fps: f64, tot
     // the 3D made from the scene's rows beforehand (not a game's): stepped again once a camera's box in the page is known
     let programmed = cx.scene3d.is_some() && cx.live3d.is_none();
     let mut restepped = false;
-    let frames: std::cell::RefCell<Vec<(i64, Frame)>> = std::cell::RefCell::new(Vec::with_capacity(total.max(0) as usize));
+    let frames: std::cell::RefCell<Vec<(i64, Frame)>> = std::cell::RefCell::new(Vec::with_capacity(wanted.len()));
     // the sound is the one mixer core's bounce of the frames' sounds and notes, as live play mixes them (raea-mixer)
     let notes: std::cell::RefCell<Vec<raea_sys_mix::ToneCue>> = std::cell::RefCell::new(Vec::new());
     let dir = cx.dir.to_path_buf();
@@ -234,14 +234,16 @@ pub(crate) fn render_fed(app: &mut App, js: &Path, w: u32, h: u32, fps: f64, tot
     // RAEA_REACT_AHEAD=0: each frame asked for in its turn, as before; and with the Engine's reads, whose frame f - 1
     // is stepped before f is asked for (engine_before)
     let ahead = std::env::var("RAEA_REACT_AHEAD").as_deref() != Ok("0") && !raea_runtime_react::shared::engine_reads();
+    let is_whole = wanted.len() as i64 == total && wanted.first() == Some(&0) && wanted.windows(2).all(|w| w[1] == w[0] + 1);
+    let last = wanted.last().copied().unwrap_or(total - 1);
     let cuts = raea_runtime_encode::Cuts::default();
     let r = raea_runtime_encode::render_fed(
         &pic,
         work,
         out,
-        &raea_runtime_encode::RenderOpts { cuts: cuts.clone(), ..render_opts() },
+        &raea_runtime_encode::RenderOpts { cuts: cuts.clone(), frames: (!is_whole).then(|| wanted.to_vec()), ..render_opts() },
         |f| {
-            if f == 0 {
+            if Some(&f) == wanted.first() {
                 raea_runtime_react::startup_mark("the fed render's first frame");
             }
             let t_react = std::time::Instant::now();
@@ -254,7 +256,7 @@ pub(crate) fn render_fed(app: &mut App, js: &Path, w: u32, h: u32, fps: f64, tot
             // the next frame asked for now, so React renders it on its own thread while this one's 3D and page are
             // drawn here: its commits wait in the inbox until the next settle applies them, so nothing this frame
             // reads changes (the frames come in order; one asked for out of order is asked for again)
-            asked = (f + 1 < total && ahead).then_some(f + 1);
+            asked = (f < last && f + 1 < total && ahead).then_some(f + 1);
             if let Some(g) = asked {
                 app.world().resource::<ReactOutbox>().send(json!({"t": "event", "name": "raea-frame", "value": g}));
             }

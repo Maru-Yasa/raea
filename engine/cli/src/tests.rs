@@ -58,6 +58,7 @@ fn a_verb_refuses_what_it_doesnt_take() {
     for ok in [
         &["render", "e.tsx", "-o", "o.mp4", "--frame", "20", "--input", "i.json", "--manifest", "m.json", "--stage", "1080x1920", "--words", "w.json"][..],
         &["render", "e.tsx", "-o", "d", "--at", "0,30", "--composition", "Main", "--w", "1080", "--h", "1920", "--fps", "30", "--frames", "90", "--lite"],
+        &["render", "e.tsx", "-o", "shard-0.mp4", "--from", "0", "--to", "299"], &["render", "e.tsx", "-o", "tail.mp4", "--from", "300"], &["render", "e.tsx", "-o", "head.mp4", "--to", "149"],
         &["render", "e.tsx", "-o", "o.mp4", "--kbps", "-6"],
         &["render", "--bundle", "a.comp.js", "-o", "o.png", "--dir", "d", "--frame", "3"],
         &["play", "g.tsx", "--input-script", "k.json", "--input-log", "l.json", "--offscreen", "--seconds", "end", "--size", "540x960", "--snapshot", "1.5", "a.png", "--seek", "30", "b.png", "--json", "p.json"],
@@ -81,11 +82,26 @@ fn a_verb_refuses_what_it_doesnt_take() {
     // zsh's "--frame 20", one word: refused, named, with the verb's usage
     let why = stray(&help, &a(&["render", "e.tsx", "-o", "o.mp4", "--frame 20"])).unwrap();
     assert!(why.starts_with("raea render doesn't take \"--frame 20\"") && why.contains("\nusage: raea render EDIT.tsx"), "{why}");
+    assert!(stray(&help, &a(&["render", "e.tsx", "-o", "o.mp4", "--from=0"])).unwrap().starts_with("raea render doesn't take \"--from=0\""));
     let why = stray(&help, &a(&["render", "e.tsx", "f.tsx", "-o", "o.mp4"])).unwrap();
     assert!(why.contains("\"f.tsx\": it takes 1 argument besides its flags"), "{why}");
     assert!(stray(&help, &a(&["play", "g.tsx", "--full"])).unwrap().starts_with("raea play doesn't take \"--full\""));
     assert!(stray(&help, &a(&["track", "c.mp4", "--setup"])).is_some());
     assert!(stray(&help, &a(&["splat", "train", "v.mp4", "-o", "o.ply", "--steps", "100"])).is_none());
+}
+
+#[test]
+fn render_range_parsing_and_resolution() {
+    let a = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    assert_eq!(raea_runtime_export::parse_range(&a(&["render", "e.tsx", "-o", "o.mp4"])).unwrap(), None);
+    for (args, exp) in [(&["--from", "0", "--to", "299"][..], (Some(0), Some(299))), (&["--from", "150"], (Some(150), None)), (&["--to", "45"], (None, Some(45)))] {
+        assert_eq!(raea_runtime_export::parse_range(&a(args)).unwrap(), Some(exp));
+    }
+    for bad in [&["--from", "20", "--to", "10"][..], &["--from", "-1"], &["--to", "abc"]] { assert!(raea_runtime_export::parse_range(&a(bad)).is_err()); }
+    for (f, t, tot, exp) in [(Some(0), Some(299), 600, 0..=299), (Some(500), Some(999), 600, 500..=599), (Some(580), None, 600, 580..=599), (None, Some(3), 10, 0..=3), (Some(7), Some(7), 10, 7..=7)] {
+        assert_eq!(raea_runtime_export::resolve_range(f, t, tot).unwrap(), exp.collect::<Vec<_>>());
+    }
+    for (f, t, tot) in [(Some(600), Some(700), 600), (Some(0), Some(10), 0)] { assert!(raea_runtime_export::resolve_range(f, t, tot).is_err()); }
 }
 
 #[test]
@@ -95,12 +111,7 @@ fn every_flag_a_verb_reads_is_in_the_help() {
     // the verbs' sources counts; the ones that aren't raea's flags are listed with why
     let help = run(&["help".to_string()]).unwrap();
     let mut named: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for line in help.lines() {
-        let v = line.trim().trim_start_matches("usage:").trim().split_whitespace().nth(1).unwrap_or("");
-        if let Some(u) = usage_of(&help, v) {
-            named.extend(u.flags.into_keys());
-        }
-    }
+    for line in help.lines() { if let Some(u) = usage_of(&help, line.trim().trim_start_matches("usage:").trim().split_whitespace().nth(1).unwrap_or("")) { named.extend(u.flags.into_keys()); } }
     let not_ours = [
         "--sign", "--timestamp", "--retry", "--uuid", "--out", // what raea passes to codesign, curl, xcrun and raea-perceive
         "--game", "--info", "--selftest", "--no-pointer", // an exported game's own player reads these (game.rs player_main)
@@ -134,14 +145,7 @@ fn every_flag_a_verb_reads_is_in_the_help() {
         ("runtime/export scene.rs", include_str!("../../../runtime/export/src/scene.rs")),
     ];
     let mut missing = Vec::new();
-    for (file, text) in files {
-        for c in lit.captures_iter(text) {
-            let f = &c[1];
-            if !named.contains(f) && !not_ours.contains(&f) {
-                missing.push(format!("{file}: {f}"));
-            }
-        }
-    }
+    for (file, text) in files { for c in lit.captures_iter(text) { let f = &c[1]; if !named.contains(f) && !not_ours.contains(&f) { missing.push(format!("{file}: {f}")); } } }
     missing.dedup();
     assert!(missing.is_empty(), "flags the code reads that raea help doesn't name (add them to the verb's line, or to its (also: ...)): {missing:?}");
 }
@@ -154,24 +158,10 @@ fn the_release_ships_every_setup_script() {
     let release = include_str!("../../../tools/release.sh");
     let pat = regex::Regex::new(r#"setup_script\("([a-z]+)"\)"#).unwrap();
     let mut missing = Vec::new();
-    for src in [
-        include_str!("../../../io/assets/src/lib.rs"),
-        include_str!("../../../io/assets/src/splat.rs"),
-        include_str!("../../../runtime/react/src/scene/physics.rs"),
-        include_str!("../../../apps/tools/src/sound.rs"),
-    ] {
-        for c in pat.captures_iter(src) {
-            if !release.contains(&format!(" tools/{} ", &c[1])) {
-                missing.push(c[1].to_string());
-            }
-        }
+    for src in [include_str!("../../../io/assets/src/lib.rs"), include_str!("../../../io/assets/src/splat.rs"), include_str!("../../../runtime/react/src/scene/physics.rs"), include_str!("../../../apps/tools/src/sound.rs")] {
+        for c in pat.captures_iter(src) { if !release.contains(&format!(" tools/{} ", &c[1])) { missing.push(c[1].to_string()); } }
     }
-    // sound.rs names its models through a variable: sao and tokensynth
-    for m in ["sao", "tokensynth"] {
-        if !release.contains(&format!(" tools/{m} ")) {
-            missing.push(m.to_string());
-        }
-    }
+    for m in ["sao", "tokensynth"] { if !release.contains(&format!(" tools/{m} ")) { missing.push(m.to_string()); } }
     assert!(missing.is_empty(), "tools/release.sh doesn't ship these setup scripts: {missing:?}");
 }
 
@@ -181,9 +171,7 @@ fn guide_names() {
     assert!(guide(Some("bevy/games")).unwrap().starts_with(GUIDE_NOTE));
     assert!(guide(Some("motion/music")).unwrap() == guide(Some("music")).unwrap());
     assert!(!guide(Some("craft")).unwrap().starts_with(GUIDE_NOTE));
-    for n in ["router", "rubric", "pitch", "quieter", "bevy", "modes/play", "coverage"] {
-        assert!(guide(Some(n)).is_ok(), "{n}");
-    }
+    for n in ["router", "rubric", "pitch", "quieter", "bevy", "modes/play", "coverage"] { assert!(guide(Some(n)).is_ok(), "{n}"); }
     assert!(guide(Some("../craft/floor")).is_err());
     assert!(guide(None).unwrap().contains("bevy/games"));
 }
@@ -201,12 +189,7 @@ fn the_skill_states_the_core_rules_as_motion_md_does() {
     assert!(rules.contains("`raea guide motion` has all ten"), "{rules}");
     let mut bullets: Vec<String> = Vec::new();
     for l in rules.lines() {
-        if l.starts_with("- ") {
-            bullets.push(l.to_string());
-        } else if let Some(b) = bullets.last_mut() {
-            b.push(' ');
-            b.push_str(l.trim());
-        }
+        if l.starts_with("- ") { bullets.push(l.to_string()); } else if let Some(b) = bullets.last_mut() { b.push(' '); b.push_str(l.trim()); }
     }
     let held: Vec<&String> = bullets.iter().filter(|b| b.starts_with("- **")).collect();
     assert!(held.len() >= 3, "{bullets:?}");
